@@ -1,173 +1,193 @@
-import { useState, useEffect } from "react"
-import axios from "axios"
+import { useState, useEffect } from "react";
+import axios from "axios";
+import "./index.css";
 
-function App() {
-  const [city, setCity] = useState("")
-  const [weather, setWeather] = useState(null)
-  const [locationError, setLocationError] = useState(false)
-  const [manualCity, setManualCity] = useState("")
-  const [weatherError, setWeatherError] = useState(false)
+const API_KEY = import.meta.env.VITE_WEATHER_API_KEY;
 
-  const apiKey = import.meta.env.VITE_WEATHER_API_KEY
+const getWeatherIcon = (condition = "") => {
+  const c = condition.toLowerCase();
+  if (c.includes("thunder")) return "⛈️";
+  if (c.includes("rain") || c.includes("drizzle")) return "🌧️";
+  if (c.includes("cloud")) return "☁️";
+  if (c.includes("clear")) return "☀️";
+  if (c.includes("snow")) return "❄️";
+  if (c.includes("mist") || c.includes("fog")) return "🌫️";
+  return "🌤️";
+};
 
-  const fetchWeatherByCoords = async (lat, lon) => {
+// Rule-based drying score (placeholder until Sprint 3 ML model)
+const calcDryingScore = (temp, humidity, windKph, rainProb) => {
+  let score = 100;
+  score -= Math.max(0, (humidity - 50) * 0.8);
+  score += Math.min(20, (temp - 20) * 0.8);
+  score += Math.min(15, windKph * 0.5);
+  score -= rainProb * 0.7;
+  return Math.round(Math.min(100, Math.max(0, score)));
+};
+
+const getScoreClass = (score) => {
+  if (score >= 70) return "score-pill score-good";
+  if (score >= 45) return "score-pill score-fair";
+  return "score-pill score-poor";
+};
+
+const getScoreLabel = (score) => {
+  if (score >= 70) return `${score}% — Great`;
+  if (score >= 45) return `${score}% — Fair`;
+  return `${score}% — Poor`;
+};
+
+export default function App() {
+  const [city, setCity] = useState("");
+  const [weather, setWeather] = useState(null);
+  const [forecast, setForecast] = useState([]);
+  const [locationError, setLocationError] = useState(false);
+  const [weatherError, setWeatherError] = useState(false);
+  const [manualCity, setManualCity] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchAll = async (lat, lon, cityName = null) => {
+    setLoading(true);
+    setWeatherError(false);
     try {
-      const res = await axios.get(
-        `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`
-      )
-      setWeather(res.data)
-      setCity(res.data.name)
-    } catch {
-      setWeatherError(true)
-    }
-  }
+      const [weatherRes, forecastRes] = await Promise.all([
+        cityName
+          ? axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${cityName}&appid=${API_KEY}&units=metric`)
+          : axios.get(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`),
+        cityName
+          ? axios.get(`https://api.openweathermap.org/data/2.5/forecast?q=${cityName}&appid=${API_KEY}&units=metric`)
+          : axios.get(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`),
+      ]);
 
-  const fetchWeatherByCity = async (cityName) => {
-    try {
-      const res = await axios.get(
-        `https://api.openweathermap.org/data/2.5/weather?q=${cityName}&appid=${apiKey}&units=metric`
-      )
-      setWeather(res.data)
-      setCity(res.data.name)
+      setWeather(weatherRes.data);
+      setCity(weatherRes.data.name);
+
+      // Aggregate forecast into daily summaries
+      const days = {};
+      forecastRes.data.list.forEach((item) => {
+        const date = item.dt_txt.split(" ")[0];
+        if (!days[date]) days[date] = { temps: [], humidities: [], winds: [], rains: [], conditions: [] };
+        days[date].temps.push(item.main.temp);
+        days[date].humidities.push(item.main.humidity);
+        days[date].winds.push(item.wind.speed * 3.6);
+        days[date].rains.push((item.pop || 0) * 100);
+        days[date].conditions.push(item.weather[0].description);
+      });
+
+      const today = new Date().toISOString().split("T")[0];
+      const dailySummaries = Object.entries(days)
+        .filter(([date]) => date !== today)
+        .slice(0, 5)
+        .map(([date, d]) => {
+          const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+          const temp = Math.round(avg(d.temps));
+          const humidity = Math.round(avg(d.humidities));
+          const wind = Math.round(avg(d.winds));
+          const rainProb = Math.round(avg(d.rains));
+          const condition = d.conditions[Math.floor(d.conditions.length / 2)];
+          const score = calcDryingScore(temp, humidity, wind, rainProb);
+          const dayName = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { weekday: "short" });
+          const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+          return { date, dayName, dateLabel, temp, humidity, wind, rainProb, condition, score };
+        });
+
+      setForecast(dailySummaries);
     } catch {
-      setWeatherError(true)
+      setWeatherError(true);
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords
-        fetchWeatherByCoords(latitude, longitude)
-      },
-      () => setLocationError(true)
-    )
-  }, [])
+      ({ coords }) => fetchAll(coords.latitude, coords.longitude),
+      () => { setLocationError(true); setLoading(false); }
+    );
+  }, []);
 
-  const getWeatherIcon = (condition) => {
-    if (!condition) return "🌤️"
-    const c = condition.toLowerCase()
-    if (c.includes("rain") || c.includes("drizzle")) return "🌧️"
-    if (c.includes("thunder")) return "⛈️"
-    if (c.includes("cloud")) return "☁️"
-    if (c.includes("clear")) return "☀️"
-    if (c.includes("snow")) return "❄️"
-    if (c.includes("mist") || c.includes("fog")) return "🌫️"
-    return "🌤️"
-  }
+  const bestDayIndex = forecast.length
+    ? forecast.indexOf(forecast.reduce((a, b) => (a.score > b.score ? a : b)))
+    : -1;
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#0f172a",
-      color: "white",
-      fontFamily: "Arial, sans-serif",
-      padding: "30px",
-      maxWidth: "420px",
-      margin: "0 auto"
-    }}>
+    <div className="app">
 
       {/* Header */}
-      <h1 style={{ fontSize: "2rem", marginBottom: "4px" }}>☀️ SunWise</h1>
-      <p style={{ color: "#64748b", fontSize: "0.9rem", marginBottom: "24px" }}>
-        Smart Laundry Drying Advisor
-      </p>
+      <div className="header">
+        <div className="header-title">
+          <h1>☀️ SunWise</h1>
+          <span className="header-subtitle">Smart Laundry Drying Advisor</span>
+        </div>
+      </div>
 
-      {/* Location denied */}
+      {/* Manual city input */}
       {locationError && (
-        <div style={{ marginBottom: "20px" }}>
-          <p style={{ marginBottom: "8px" }}>
-            📍 Location access denied. Enter your city:
-          </p>
-          <div style={{ display: "flex", gap: "8px" }}>
+        <div className="manual-input">
+          <p>📍 Location access denied. Enter your city:</p>
+          <div className="input-row">
             <input
               value={manualCity}
               onChange={(e) => setManualCity(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && fetchAll(null, null, manualCity)}
               placeholder="e.g. Caloocan"
-              style={{
-                flex: 1, padding: "8px 12px",
-                borderRadius: "8px", border: "none", color: "black"
-              }}
             />
-            <button
-              onClick={() => fetchWeatherByCity(manualCity)}
-              style={{
-                padding: "8px 16px", borderRadius: "8px",
-                background: "#f59e0b", color: "white",
-                border: "none", cursor: "pointer", fontWeight: "bold"
-              }}
-            >
-              Go
-            </button>
+            <button onClick={() => fetchAll(null, null, manualCity)}>Go</button>
           </div>
         </div>
       )}
 
-      {/* Weather Card */}
-      {weather ? (
-        <div style={{
-          background: "#1e293b",
-          borderRadius: "16px",
-          padding: "24px",
-          boxShadow: "0 4px 24px rgba(0,0,0,0.3)"
-        }}>
-          <div style={{ fontSize: "0.9rem", color: "#94a3b8", marginBottom: "4px" }}>
-            📍 {city}
-          </div>
-          <div style={{ fontSize: "3.5rem", margin: "8px 0" }}>
-            {getWeatherIcon(weather.weather[0].description)}
-          </div>
-          <div style={{ fontSize: "3rem", fontWeight: "bold", marginBottom: "4px" }}>
-            {Math.round(weather.main.temp)}°C
-          </div>
-          <div style={{
-            color: "#94a3b8",
-            textTransform: "capitalize",
-            marginBottom: "20px"
-          }}>
-            {weather.weather[0].description}
+      {loading && <p className="loading">⏳ Detecting your location...</p>}
+      {weatherError && (
+        <p className="error">Could not fetch weather. Check your city name and try again.</p>
+      )}
+
+      {!loading && weather && (
+        <div className="layout">
+
+          {/* Weather Card */}
+          <div className="weather-card">
+            <div className="weather-city">📍 {city}</div>
+            <div className="weather-icon">{getWeatherIcon(weather.weather[0].description)}</div>
+            <div className="weather-temp">{Math.round(weather.main.temp)}°C</div>
+            <div className="weather-desc">{weather.weather[0].description}</div>
+            <div className="weather-stats">
+              {[
+                { icon: "💧", label: "Humidity",   value: `${weather.main.humidity}%` },
+                { icon: "💨", label: "Wind Speed", value: `${Math.round(weather.wind.speed * 3.6)} km/h` },
+                { icon: "🌧️", label: "Rain (1h)",  value: weather.rain ? `${weather.rain["1h"] || 0} mm` : "None" },
+                { icon: "🌡️", label: "Feels Like", value: `${Math.round(weather.main.feels_like)}°C` },
+              ].map((item) => (
+                <div key={item.label} className="stat-card">
+                  <div className="stat-icon">{item.icon}</div>
+                  <div className="stat-label">{item.label}</div>
+                  <div className="stat-value">{item.value}</div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Weather Stats Grid */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "10px"
-          }}>
-            {[
-              { label: "Humidity", value: `${weather.main.humidity}%`, icon: "💧" },
-              { label: "Wind Speed", value: `${Math.round(weather.wind.speed * 3.6)} km/h`, icon: "💨" },
-              { label: "Rain (1h)", value: weather.rain ? `${weather.rain["1h"] || 0} mm` : "None", icon: "🌧️" },
-              { label: "Feels Like", value: `${Math.round(weather.main.feels_like)}°C`, icon: "🌡️" },
-            ].map((item) => (
-              <div key={item.label} style={{
-                background: "#0f172a",
-                borderRadius: "10px",
-                padding: "12px",
-                textAlign: "center"
-              }}>
-                <div style={{ fontSize: "1.2rem", marginBottom: "4px" }}>{item.icon}</div>
-                <div style={{ fontSize: "0.75rem", color: "#64748b", marginBottom: "2px" }}>
-                  {item.label}
+          {/* Forecast + Calendar */}
+          <div className="forecast-section">
+            <div className="section-title">📅 Best Day This Week</div>
+            <div className="forecast-scroll">
+              {forecast.map((day, i) => (
+                <div key={day.date} className={`forecast-card ${i === bestDayIndex ? "best" : ""}`}>
+                  <div className="forecast-day">{day.dayName}</div>
+                  <div className="forecast-date">{day.dateLabel}</div>
+                  <div className="forecast-icon">{getWeatherIcon(day.condition)}</div>
+                  <div className="forecast-temp">{day.temp}°C</div>
+                  <div className="forecast-detail">💧 {day.humidity}%</div>
+                  <div className="forecast-detail">🌧️ {day.rainProb}%</div>
+                  <span className={getScoreClass(day.score)}>{getScoreLabel(day.score)}</span>
+                  {i === bestDayIndex && <div className="best-badge">⭐ BEST DAY</div>}
                 </div>
-                <div style={{ fontSize: "1.1rem", fontWeight: "bold" }}>
-                  {item.value}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+
         </div>
-
-      ) : !locationError && !weatherError ? (
-        <p style={{ color: "#64748b" }}>⏳ Detecting your location...</p>
-      ) : weatherError ? (
-        <p style={{ color: "#f87171" }}>
-          Could not fetch weather. Check your city name and try again.
-        </p>
-      ) : null}
-
+      )}
     </div>
-  )
+  );
 }
-
-export default App

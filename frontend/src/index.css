@@ -1,68 +1,212 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --bg: #0b1120;
+  --surface: #161f35;
+  --card: #1c2a45;
+  --accent: #f59e0b;
+  --accent-soft: #fbbf24;
+  --text: #f0f4ff;
+  --muted: #64748b;
+  --soft: #94a3b8;
+  --green: #22c55e;
+  --yellow: #eab308;
+  --red: #ef4444;
+  --radius: 16px;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+html {
+  overflow-x: hidden;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Outfit', sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
+  width: 100%;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 28px 16px;
+  width: 100%;
+  overflow-x: hidden;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
+/* Header */
+.header { margin-bottom: 32px; }
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
-button:hover {
-  border-color: #646cff;
+.header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
 }
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+.header-subtitle {
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 400;
+  padding-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Manual input */
+.manual-input { margin-bottom: 24px; }
+.manual-input p { margin-bottom: 10px; color: var(--soft); }
+.input-row { display: flex; gap: 8px; }
+.input-row input {
+  flex: 1; padding: 10px 14px;
+  background: var(--card); border: 1px solid #2a3a5c;
+  border-radius: 10px; color: var(--text);
+  font-family: 'Outfit', sans-serif; font-size: 0.95rem;
+  outline: none;
+}
+.input-row input:focus { border-color: var(--accent); }
+.input-row button {
+  padding: 10px 20px; background: var(--accent);
+  color: #0b1120; border: none; border-radius: 10px;
+  font-weight: 700; cursor: pointer; font-family: 'Outfit', sans-serif;
+  transition: background 0.2s;
+}
+.input-row button:hover { background: var(--accent-soft); }
+
+/* Layout grid — mobile first */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+/* Weather Card */
+.weather-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  border: 1px solid #1e2d4a;
+  animation: fadeUp 0.5s ease both;
+}
+.weather-city { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+.weather-icon { font-size: 3.5rem; margin: 8px 0; }
+.weather-temp { font-size: 3.2rem; font-weight: 700; line-height: 1; }
+.weather-desc {
+  color: var(--soft); text-transform: capitalize;
+  margin: 6px 0 20px; font-size: 1rem;
+}
+.weather-stats {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.stat-card {
+  background: var(--bg); border-radius: 12px;
+  padding: 12px; text-align: center;
+  border: 1px solid #1e2d4a;
+}
+.stat-icon { font-size: 1.1rem; margin-bottom: 4px; }
+.stat-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 2px; }
+.stat-value { font-size: 1.05rem; font-weight: 600; }
+
+/* Forecast Section */
+.forecast-section {
+  animation: fadeUp 0.5s ease 0.15s both;
+}
+.section-title {
+  font-size: 1rem; font-weight: 600;
+  color: var(--soft); margin-bottom: 14px;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+/* Mobile: horizontal scroll */
+.forecast-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 10px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.forecast-scroll::-webkit-scrollbar { display: none; }
+
+.forecast-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 14px 10px;
+  text-align: center;
+  border: 1px solid #1e2d4a;
+  cursor: default;
+  transition: transform 0.2s, border-color 0.2s;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+.forecast-card:hover { transform: translateY(-2px); }
+.forecast-card.best {
+  border-color: var(--accent);
+  background: linear-gradient(145deg, #1c2a45, #2a1f00);
+}
+.forecast-day { font-size: 0.8rem; color: var(--muted); margin-bottom: 2px; }
+.forecast-date { font-size: 0.7rem; color: var(--muted); margin-bottom: 8px; }
+.forecast-icon { font-size: 1.8rem; margin-bottom: 8px; }
+.forecast-temp { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+.forecast-detail { font-size: 0.72rem; color: var(--soft); }
+.best-badge {
+  background: var(--accent);
+  color: #0b1120;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+/* Drying score pill */
+.score-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.score-good { background: #14532d; color: #4ade80; }
+.score-fair { background: #713f12; color: #fbbf24; }
+.score-poor { background: #7f1d1d; color: #fca5a5; }
+
+/* Loading / Error */
+.loading { color: var(--muted); padding: 20px 0; font-size: 0.95rem; }
+.error { color: var(--red); padding: 20px 0; font-size: 0.95rem; }
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Desktop: side by side */
+@media (min-width: 768px) {
+  .layout { grid-template-columns: 320px 1fr; align-items: start; }
+
+  .forecast-scroll {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    overflow-x: visible;
+    padding-bottom: 0;
   }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+
+  .forecast-card { min-width: unset; flex-shrink: unset; }
+  .weather-temp { font-size: 3.2rem; }
 }
