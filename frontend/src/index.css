@@ -95,10 +95,10 @@ body {
 
 /* Weather Card */
 .weather-card {
-  background: var(--surface);
+  background: linear-gradient(145deg, #1a2744, #0f1e3a);
   border-radius: var(--radius);
   padding: 24px;
-  border: 1px solid #1e2d4a;
+  border: 1px solid #2a4a7f;
   animation: fadeUp 0.5s ease both;
 }
 .weather-city { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
