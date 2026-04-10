@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import "./index.css";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./AuthContext";
+import Login from "./Login";
+import Register from "./Register";
 
 const API_KEY = import.meta.env.VITE_WEATHER_API_KEY;
 
@@ -15,36 +19,16 @@ const getWeatherIcon = (condition = "") => {
   return "🌤️";
 };
 
-// Rule-based drying score (placeholder until Sprint 3 ML model)
-const calcDryingScore = (temp, humidity, windKph, rainProb) => {
-  let score = 100;
-  score -= Math.max(0, (humidity - 50) * 0.8);
-  score += Math.min(20, (temp - 20) * 0.8);
-  score += Math.min(15, windKph * 0.5);
-  score -= rainProb * 0.7;
-  return Math.round(Math.min(100, Math.max(0, score)));
-};
-
-const getScoreClass = (score) => {
-  if (score >= 70) return "score-pill score-good";
-  if (score >= 45) return "score-pill score-fair";
-  return "score-pill score-poor";
-};
-
-const getScoreLabel = (score) => {
-  if (score >= 70) return `${score}% — Great`;
-  if (score >= 45) return `${score}% — Fair`;
-  return `${score}% — Poor`;
-};
-
 export default function App() {
-  const [city, setCity] = useState("");
-  const [weather, setWeather] = useState(null);
-  const [forecast, setForecast] = useState([]);
+  const { token, username, logout } = useAuth();
+
+  const [city, setCity]                   = useState("");
+  const [weather, setWeather]             = useState(null);
+  const [forecast, setForecast]           = useState([]);
   const [locationError, setLocationError] = useState(false);
-  const [weatherError, setWeatherError] = useState(false);
-  const [manualCity, setManualCity] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [weatherError, setWeatherError]   = useState(false);
+  const [manualCity, setManualCity]       = useState("");
+  const [loading, setLoading]             = useState(true);
 
   const fetchAll = async (lat, lon, cityName = null) => {
     setLoading(true);
@@ -62,7 +46,6 @@ export default function App() {
       setWeather(weatherRes.data);
       setCity(weatherRes.data.name);
 
-      // Aggregate forecast into daily summaries
       const days = {};
       forecastRes.data.list.forEach((item) => {
         const date = item.dt_txt.split(" ")[0];
@@ -79,16 +62,15 @@ export default function App() {
         .filter(([date]) => date !== today)
         .slice(0, 5)
         .map(([date, d]) => {
-          const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
-          const temp = Math.round(avg(d.temps));
-          const humidity = Math.round(avg(d.humidities));
-          const wind = Math.round(avg(d.winds));
-          const rainProb = Math.round(avg(d.rains));
+          const avg       = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+          const temp      = Math.round(avg(d.temps));
+          const humidity  = Math.round(avg(d.humidities));
+          const wind      = Math.round(avg(d.winds));
+          const rainProb  = Math.round(avg(d.rains));
           const condition = d.conditions[Math.floor(d.conditions.length / 2)];
-          const score = calcDryingScore(temp, humidity, wind, rainProb);
-          const dayName = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { weekday: "short" });
+          const dayName   = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { weekday: "short" });
           const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
-          return { date, dayName, dateLabel, temp, humidity, wind, rainProb, condition, score };
+          return { date, dayName, dateLabel, temp, humidity, wind, rainProb, condition };
         });
 
       setForecast(dailySummaries);
@@ -100,16 +82,25 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (!token) return;
     navigator.geolocation.getCurrentPosition(
       ({ coords }) => fetchAll(coords.latitude, coords.longitude),
       () => { setLocationError(true); setLoading(false); }
     );
-  }, []);
+  }, [token]);
 
-  const bestDayIndex = forecast.length
-    ? forecast.indexOf(forecast.reduce((a, b) => (a.score > b.score ? a : b)))
-    : -1;
+  // ── AUTH GUARD ──────────────────────────────────────────────────────────────
+  if (!token) {
+    return (
+      <Routes>
+        <Route path="/login"    element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="*"         element={<Navigate to="/login" />} />
+      </Routes>
+    );
+  }
 
+  // ── MAIN APP ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
 
@@ -117,7 +108,25 @@ export default function App() {
       <div className="header">
         <div className="header-title">
           <h1>☀️ SunWise</h1>
-          <span className="header-subtitle">Smart Laundry Drying Advisor</span>
+          <span className="header-subtitle">Weather-Aware Tourist Destination Recommender</span>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "12px" }}>
+          <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}>👤 {username}</span>
+          <button
+            onClick={logout}
+            style={{
+              padding: "6px 14px",
+              background: "transparent",
+              border: "1px solid #334155",
+              borderRadius: "8px",
+              color: "#94a3b8",
+              cursor: "pointer",
+              fontSize: "0.85rem",
+              fontFamily: "Outfit, Arial, sans-serif",
+            }}
+          >
+            Log Out
+          </button>
         </div>
       </div>
 
@@ -167,20 +176,18 @@ export default function App() {
             </div>
           </div>
 
-          {/* Forecast + Calendar */}
+          {/* 5-Day Forecast — placeholder until Gemini scores in Sprint 3 */}
           <div className="forecast-section">
-            <div className="section-title">📅 Best Day This Week</div>
+            <div className="section-title">📅 5-Day Forecast</div>
             <div className="forecast-scroll">
-              {forecast.map((day, i) => (
-                <div key={day.date} className={`forecast-card ${i === bestDayIndex ? "best" : ""}`}>
+              {forecast.map((day) => (
+                <div key={day.date} className="forecast-card">
                   <div className="forecast-day">{day.dayName}</div>
                   <div className="forecast-date">{day.dateLabel}</div>
                   <div className="forecast-icon">{getWeatherIcon(day.condition)}</div>
                   <div className="forecast-temp">{day.temp}°C</div>
                   <div className="forecast-detail">💧 {day.humidity}%</div>
                   <div className="forecast-detail">🌧️ {day.rainProb}%</div>
-                  <span className={getScoreClass(day.score)}>{getScoreLabel(day.score)}</span>
-                  {i === bestDayIndex && <div className="best-badge">⭐ BEST DAY</div>}
                 </div>
               ))}
             </div>
