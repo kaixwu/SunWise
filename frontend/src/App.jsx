@@ -29,6 +29,26 @@ export default function App() {
   const [weatherError, setWeatherError]   = useState(false);
   const [manualCity, setManualCity]       = useState("");
   const [loading, setLoading]             = useState(true);
+  const [destinations, setDestinations]   = useState([]);
+  const [destLoading, setDestLoading]     = useState(false);
+  const [destError, setDestError]         = useState(false);
+
+
+  const fetchDestinations = async (lat, lon) => {
+    setDestLoading(true);
+    setDestError(false);
+    try {
+      const res = await axios.get("http://localhost:5000/destinations", {
+        params: { lat, lon, radius: 10000 },
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setDestinations(res.data.destinations || []);
+    } catch {
+      setDestError(true);
+    } finally {
+      setDestLoading(false);
+    }
+  };
 
   const fetchAll = async (lat, lon, cityName = null) => {
     setLoading(true);
@@ -36,20 +56,38 @@ export default function App() {
     try {
       const [weatherRes, forecastRes] = await Promise.all([
         cityName
-          ? axios.get(`https://api.openweathermap.org/data/2.5/weather?q=${cityName}&appid=${API_KEY}&units=metric`)
-          : axios.get(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`),
+          ? axios.get(
+              `https://api.openweathermap.org/data/2.5/weather?q=${cityName}&appid=${API_KEY}&units=metric`,
+            )
+          : axios.get(
+              `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
+            ),
         cityName
-          ? axios.get(`https://api.openweathermap.org/data/2.5/forecast?q=${cityName}&appid=${API_KEY}&units=metric`)
-          : axios.get(`https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`),
+          ? axios.get(
+              `https://api.openweathermap.org/data/2.5/forecast?q=${cityName}&appid=${API_KEY}&units=metric`,
+            )
+          : axios.get(
+              `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`,
+            ),
       ]);
 
       setWeather(weatherRes.data);
       setCity(weatherRes.data.name);
+      const newLat = weatherRes.data.coord.lat;
+      const newLon = weatherRes.data.coord.lon;
+      fetchDestinations(newLat, newLon);
 
       const days = {};
       forecastRes.data.list.forEach((item) => {
         const date = item.dt_txt.split(" ")[0];
-        if (!days[date]) days[date] = { temps: [], humidities: [], winds: [], rains: [], conditions: [] };
+        if (!days[date])
+          days[date] = {
+            temps: [],
+            humidities: [],
+            winds: [],
+            rains: [],
+            conditions: [],
+          };
         days[date].temps.push(item.main.temp);
         days[date].humidities.push(item.main.humidity);
         days[date].winds.push(item.wind.speed * 3.6);
@@ -62,15 +100,30 @@ export default function App() {
         .filter(([date]) => date !== today)
         .slice(0, 5)
         .map(([date, d]) => {
-          const avg       = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
-          const temp      = Math.round(avg(d.temps));
-          const humidity  = Math.round(avg(d.humidities));
-          const wind      = Math.round(avg(d.winds));
-          const rainProb  = Math.round(avg(d.rains));
+          const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+          const temp = Math.round(avg(d.temps));
+          const humidity = Math.round(avg(d.humidities));
+          const wind = Math.round(avg(d.winds));
+          const rainProb = Math.round(avg(d.rains));
           const condition = d.conditions[Math.floor(d.conditions.length / 2)];
-          const dayName   = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { weekday: "short" });
-          const dateLabel = new Date(date + "T12:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
-          return { date, dayName, dateLabel, temp, humidity, wind, rainProb, condition };
+          const dayName = new Date(date + "T12:00:00").toLocaleDateString(
+            "en-PH",
+            { weekday: "short" },
+          );
+          const dateLabel = new Date(date + "T12:00:00").toLocaleDateString(
+            "en-PH",
+            { month: "short", day: "numeric" },
+          );
+          return {
+            date,
+            dayName,
+            dateLabel,
+            temp,
+            humidity,
+            wind,
+            rainProb,
+            condition,
+          };
         });
 
       setForecast(dailySummaries);
@@ -84,7 +137,10 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => fetchAll(coords.latitude, coords.longitude),
+      ({ coords }) => {
+            fetchAll(coords.latitude, coords.longitude);
+            
+      },
       () => { setLocationError(true); setLoading(false); }
     );
   }, [token]);
@@ -192,7 +248,65 @@ export default function App() {
               ))}
             </div>
           </div>
+        </div>
+      )}
 
+      {/* Destination Cards */}
+      {!loading && weather && (
+        <div style={{ marginTop: "32px" }}>
+          <div className="section-title">📍 Nearby Tourist Destinations</div>
+
+          {destLoading && (
+            <p className="loading">⏳ Fetching nearby destinations...</p>
+          )}
+          {destError && (
+            <p className="error">Could not load destinations. Please try again.</p>
+          )}
+
+          {!destLoading && destinations.length === 0 && !destError && (
+            <p className="loading">No destinations found nearby.</p>
+          )}
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: "14px",
+            marginTop: "16px",
+          }}>
+            {destinations.map((dest, i) => (
+              <div key={i} style={{
+                background: "#1c2a45",
+                borderRadius: "14px",
+                padding: "16px",
+                border: "1px solid #1e2d4a",
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}>
+                <div style={{ fontWeight: "600", fontSize: "0.95rem", color: "#f0f4ff" }}>
+                  {dest.name}
+                </div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{
+                    background: dest.type === "Indoor" ? "#1e3a5f" : "#1a3a2a",
+                    color: dest.type === "Indoor" ? "#60a5fa" : "#4ade80",
+                    padding: "2px 10px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "600",
+                  }}>
+                    {dest.type === "Indoor" ? "🏛️" : "🌿"} {dest.type}
+                  </span>
+                  <span style={{
+                    background: "#1e2d4a", color: "#94a3b8",
+                    padding: "2px 10px", borderRadius: "20px", fontSize: "0.75rem",
+                  }}>
+                    {dest.category}
+                  </span>
+                </div>
+                <div style={{ color: "#64748b", fontSize: "0.8rem" }}>
+                  📏 {dest.distance} km away
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -7,6 +7,8 @@ from flask_jwt_extended import (
 import bcrypt
 import sqlite3
 import os
+import math
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -177,6 +179,106 @@ def me():
 def health():
     return jsonify({"status": "ok"}), 200
 
+import math
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.asin(math.sqrt(a))
+
+@app.route("/destinations", methods=["GET"])
+@jwt_required()
+def get_destinations():
+    lat    = request.args.get("lat", type=float)
+    lon    = request.args.get("lon", type=float)
+    radius = request.args.get("radius", default=10000, type=int)
+
+    if lat is None or lon is None:
+        return jsonify({"error": "lat and lon are required."}), 400
+
+    query = f"""
+    [out:json][timeout:25];
+    (
+      node["tourism"](around:{radius},{lat},{lon});
+      way["tourism"](around:{radius},{lat},{lon});
+      relation["tourism"](around:{radius},{lat},{lon});
+    );
+    out center tags;
+    """
+
+    try:
+        resp = requests.post(
+            "https://overpass-api.de/api/interpreter",
+            data={"data": query},
+            timeout=25
+        )
+        data = resp.json()
+    except Exception as e:
+        return jsonify({"error": "Failed to fetch destinations.", "details": str(e)}), 500
+
+    destinations = []
+    for el in data.get("elements", []):
+        tags = el.get("tags", {})
+        name = tags.get("name")
+        if not name:
+            continue
+
+        # Get coordinates
+        if el["type"] == "node":
+            dlat, dlon = el.get("lat"), el.get("lon")
+        else:
+            center = el.get("center", {})
+            dlat, dlon = center.get("lat"), center.get("lon")
+
+        if not dlat or not dlon:
+            continue
+
+        tourism = tags.get("tourism", "attraction")
+
+        # Map to category
+        category_map = {
+            "museum":      "Museum",
+            "gallery":     "Museum",
+            "artwork":     "Heritage",
+            "monument":    "Heritage",
+            "memorial":    "Heritage",
+            "ruins":       "Heritage",
+            "viewpoint":   "Nature",
+            "picnic_site": "Nature",
+            "camp_site":   "Nature",
+            "beach":       "Beach",
+            "theme_park":  "Park",
+            "attraction":  "Landmark",
+            "zoo":         "Park",
+            "aquarium":    "Museum",
+        }
+        category = category_map.get(tourism, "Landmark")
+
+        # Indoor or outdoor
+        indoor_types = {"museum", "gallery", "aquarium", "artwork"}
+        dest_type = "Indoor" if tourism in indoor_types else "Outdoor"
+
+        distance = round(haversine(lat, lon, dlat, dlon), 1)
+
+        destinations.append({
+            "name":     name,
+            "lat":      dlat,
+            "lon":      dlon,
+            "type":     dest_type,
+            "category": category,
+            "tourism":  tourism,
+            "distance": distance,
+        })
+
+    # Filter out accommodations
+    exclude = {"hotel", "hostel", "guest_house", "motel", "apartment"}
+    destinations = [d for d in destinations if d["tourism"] not in exclude]
+    # Sort by distance
+    destinations.sort(key=lambda x: x["distance"])
+
+    return jsonify({"destinations": destinations[:30]}), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
