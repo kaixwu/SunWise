@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { Home, CloudRain, Map, Calendar, ShieldCheck, LogOut, User } from "lucide-react";
+const API = import.meta.env.VITE_API_URL || API
 
 export default function Navbar() {
   const { username, role, logout } = useAuth();

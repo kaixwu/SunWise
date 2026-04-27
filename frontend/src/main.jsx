@@ -5,6 +5,7 @@ import { AuthProvider } from "./AuthContext"
 import App from "./App.jsx"
 import axios from "axios"
 import "./index.css"
+const API = import.meta.env.VITE_API_URL || API
 
 axios.defaults.withCredentials = true;
 axios.defaults.xsrfCookieName = 'csrf_access_token';

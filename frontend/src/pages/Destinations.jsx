@@ -3,8 +3,8 @@ import axios from "axios";
 import { useData } from "../DataContext";
 import { useAuth } from "../AuthContext";
 import { MapPin, Clock, Star, Car, Compass, MessageSquare, PlusSquare } from "lucide-react";
+const API = import.meta.env.VITE_API_URL || API
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
 export default function Destinations() {
   const { token } = useAuth();

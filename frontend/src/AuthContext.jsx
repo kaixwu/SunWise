@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react"
 import axios from "axios"
+const API = import.meta.env.VITE_API_URL || API
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
 const AuthContext = createContext(null)
 
@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     // Check if the user has a valid HttpOnly cookie session
-    axios.get("http://localhost:5000/api/check-auth")
+    axios.get(`${API}/api/check-auth`)
       .then(res => {
         setToken("cookie_active") // We just need a truthy value for App.jsx
         setUsername(res.data.username)
@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
   }
 
   const logout = () => {
-    axios.post("http://localhost:5000/logout").finally(() => {
+    axios.post(`${API}/logout`).finally(() => {
       setToken(null)
       setUsername(null)
       setRole(null)

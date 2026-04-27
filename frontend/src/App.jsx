@@ -9,6 +9,7 @@ import Weather from "./pages/Weather";
 import Destinations from "./pages/Destinations";
 import Planner from "./pages/Planner";
 import Navbar from "./components/Navbar";
+const API = import.meta.env.VITE_API_URL || API
 
 export default function App() {
   const { token, role } = useAuth();

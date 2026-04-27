@@ -1,8 +1,8 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useAuth } from "./AuthContext";
+const API = import.meta.env.VITE_API_URL || API
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000"
 
 const DataContext = createContext();
 const API_KEY = import.meta.env.VITE_WEATHER_API_KEY;

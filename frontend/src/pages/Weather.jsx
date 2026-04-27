@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useData } from "../DataContext";
 import { CloudLightning, CloudRain, Cloud, Sun, Snowflake, CloudFog, CloudDrizzle, Droplets, Wind, Sunrise, Sunset, AlertTriangle, CalendarDays, Clock } from "lucide-react";
+const API = import.meta.env.VITE_API_URL || API
 
 const getWeatherIcon = (condition = "", size = 48) => {
   const c = condition.toLowerCase();
