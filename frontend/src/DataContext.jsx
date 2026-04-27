@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useAuth } from "./AuthContext";
 
+const API = import.meta.env.VITE_API_URL || API
+
 const DataContext = createContext();
 const API_KEY = import.meta.env.VITE_WEATHER_API_KEY;
 
@@ -44,7 +46,7 @@ export const DataProvider = ({ children }) => {
       };
       const res = await axios.post("http://localhost:5000/api/places", {
         lat, lon, radius: searchRadius, category, envType: env, weather: weatherData
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       setPlaces(res.data.places || []);
     } catch (err) {
       console.error(err);
@@ -76,7 +78,7 @@ export const DataProvider = ({ children }) => {
       setForecast(dailyData.slice(0, 5));
       setFullForecast(fRes.data.list);
 
-      axios.get("http://localhost:5000/api/disasters", { headers: { Authorization: `Bearer ${token}` } })
+      axios.get("http://localhost:5000/api/disasters")
         .then(res => setDisasters(res.data.disasters || []))
         .catch(err => console.error("GDACS error", err));
 
@@ -98,7 +100,7 @@ export const DataProvider = ({ children }) => {
     if (!token || role === "admin" || isInitialFetchDone.current) return;
     
     // Fetch today's plan
-    axios.get("http://localhost:5000/api/itineraries", { headers: { Authorization: `Bearer ${token}` } })
+    axios.get("http://localhost:5000/api/itineraries")
       .then(res => {
         const todayStr = new Date().toISOString().split("T")[0];
         const todaysItin = res.data.find(it => it.date_str === todayStr);

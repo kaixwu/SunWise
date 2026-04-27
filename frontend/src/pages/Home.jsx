@@ -10,6 +10,8 @@ import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 
+const API = import.meta.env.VITE_API_URL || API
+
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
@@ -43,7 +45,7 @@ export default function Home() {
     if (val.length > 2) {
       setShowSuggestions(true);
       try {
-        const res = await axios.get(`http://localhost:5000/api/autocomplete?text=${val}&lat=${currentCoords?.lat}&lon=${currentCoords?.lon}`);
+        const res = await axios.get(`${API}/api/autocomplete?text=${val}&lat=${currentCoords?.lat}&lon=${currentCoords?.lon}`);
         setSuggestions(res.data.suggestions || []);
       } catch (e) { console.error(e); }
     } else {
@@ -91,7 +93,7 @@ export default function Home() {
       const res = await axios.post("http://localhost:5000/api/route", {
         start: currentCoords,
         end: { lat: place.lat, lon: place.lon }
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       const points = res.data.routes[0].legs[0].points.map(p => [p.latitude, p.longitude]);
       setRoutePolyline(points);
       setRouteInfo(res.data.routes[0].summary);
@@ -110,7 +112,7 @@ export default function Home() {
         <h2 className="font-heading" style={{ margin: 0 }}>Overview</h2>
       </div>
       
-      {locationError && !weather ? (
+      {locationError ? (
         <div className="glass-card" style={{ textAlign: "center", padding: "40px" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}><AlertCircle size={48} color="var(--accent-blue)" /></div>
           <h2 className="font-heading" style={{ marginBottom: "16px" }}>Location Required</h2>

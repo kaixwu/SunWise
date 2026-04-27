@@ -3,7 +3,9 @@ import axios from "axios";
 import { useAuth } from "./AuthContext";
 import { Link } from "react-router-dom";
 
-const API = "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL || API
+
+const API = API;
 
 export default function Admin() {
   const { token, role, logout } = useAuth();
@@ -23,7 +25,7 @@ export default function Admin() {
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get(`${API}/admin/users`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API}/admin/users`);
       setUsers(res.data);
     } catch (err) {
       console.error(err);
@@ -32,7 +34,7 @@ export default function Admin() {
 
   const fetchLogs = async () => {
     try {
-      const res = await axios.get(`${API}/admin/logs`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API}/admin/logs`);
       setLogs(res.data);
     } catch (err) {
       console.error(err);
@@ -41,7 +43,7 @@ export default function Admin() {
 
   const toggleBan = async (id) => {
     try {
-      await axios.post(`${API}/admin/users/${id}/ban`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API}/admin/users/${id}/ban`, {});
       fetchUsers();
     } catch (err) {
       alert(err.response?.data?.error || "Error banning user");
@@ -51,7 +53,7 @@ export default function Admin() {
   const addDestination = async () => {
     setDestMsg("");
     try {
-      await axios.post(`${API}/admin/destinations`, destForm, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API}/admin/destinations`, destForm);
       setDestMsg("Destination added successfully!");
       setDestForm({ name: "", lat: "", lon: "", type: "Outdoor", category: "Landmark" });
     } catch (err) {

@@ -4,6 +4,8 @@ import { useAuth } from "../AuthContext";
 import { useData } from "../DataContext";
 import { Calendar, Clock, MapPin, Search, Plus, Trash2, ArrowUp, ArrowDown, Bot, CalendarCheck, Zap } from "lucide-react";
 
+const API = import.meta.env.VITE_API_URL || API
+
 export default function Planner() {
   const { token } = useAuth();
   const { weather, setTodayPlan } = useData();
@@ -22,9 +24,7 @@ export default function Planner() {
   const fetchSavedPlaces = async () => {
     setLoading(true);
     try {
-      const res = await axios.get("http://localhost:5000/api/saved-places", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await axios.get("http://localhost:5000/api/saved-places");
       setSavedPlaces(res.data.places || res.data || []);
     } catch (err) {
       console.error(err);
@@ -39,9 +39,7 @@ export default function Planner() {
 
   const removeSavedPlace = async (id) => {
     try {
-      await axios.delete(`http://localhost:5000/api/saved-places/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.delete(`${API}/api/saved-places/${id}`);
       setSavedPlaces(savedPlaces.filter(p => p.id !== id));
       setSchedule(schedule.filter(p => p.id !== id));
     } catch (err) {
@@ -88,7 +86,7 @@ export default function Planner() {
         date_str: finalDate,
         time_str: timeStr,
         places: scheduleToSave
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       
       const todayStr = new Date().toISOString().split("T")[0];
       if (finalDate === todayStr) {
@@ -128,7 +126,7 @@ export default function Planner() {
         weather: weatherData,
         date_str: finalDate,
         time_str: timeStr
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       
       const valText = res.data.validation || "";
       if (valText.startsWith("[APPROVED]")) {

@@ -4,6 +4,8 @@ import { useData } from "../DataContext";
 import { useAuth } from "../AuthContext";
 import { MapPin, Clock, Star, Car, Compass, MessageSquare, PlusSquare } from "lucide-react";
 
+const API = import.meta.env.VITE_API_URL || API
+
 export default function Destinations() {
   const { token } = useAuth();
   const { 
@@ -39,7 +41,7 @@ export default function Destinations() {
       const res = await axios.post("http://localhost:5000/api/place-summary", {
         name: place.name,
         reviews: reviewTexts
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       setAiSummary(res.data.summary);
     } catch (err) {
       console.error(err);
@@ -55,7 +57,7 @@ export default function Destinations() {
     try {
       const res = await axios.post("http://localhost:5000/api/directory", {
         lat: place.lat, lon: place.lon
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       setDirectoryStores(res.data.stores);
     } catch (err) {
       console.error(err);
@@ -75,7 +77,7 @@ export default function Destinations() {
         category: place.category,
         photoUrl: place.photoUrl,
         rating: place.rating
-      }, { headers: { Authorization: `Bearer ${token}` } });
+      });
       alert("Place saved to your Planner!");
     } catch (err) {
       console.error(err);

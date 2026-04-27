@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, create_access_token,
-    jwt_required, get_jwt_identity
+    jwt_required, get_jwt_identity,
+    set_access_cookies, unset_jwt_cookies
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -26,10 +27,19 @@ print(f"Loaded TomTom Key: {os.getenv('TOMTOM_API_KEY', '')[:8]}...")
 print(f"Loaded Google Places Key: {os.getenv('GOOGLE_PLACES_API_KEY', '')[:8]}...")
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://127.0.0.1:5173"])
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+CORS(app, supports_credentials=True, origins=[
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    frontend_url
+])
 
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "fallback-secret")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400
+app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+# Secure cookies require HTTPS. In production, FLASK_ENV should be 'production'
+app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV") == "production"
+app.config["JWT_COOKIE_CSRF_PROTECT"] = True
 
 db_url = os.getenv("DATABASE_URL")
 if db_url and db_url.startswith("postgres://"):
@@ -37,8 +47,13 @@ if db_url and db_url.startswith("postgres://"):
 if not db_url:
     db_url = "sqlite:///sunwise.db"
 
+import sqlalchemy
+
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "poolclass": sqlalchemy.pool.NullPool
+}
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -179,7 +194,9 @@ def login():
         return jsonify({"error": "This account has been banned."}), 403
     log_security_event(request.remote_addr, email, "SUCCESS_LOGIN")
     token = create_access_token(identity=str(user.id))
-    return jsonify({"token": token, "user_id": user.id, "username": user.username, "role": user.role}), 200
+    resp = jsonify({"user_id": user.id, "username": user.username, "role": user.role})
+    set_access_cookies(resp, token)
+    return resp, 200
 
 @app.route("/me", methods=["GET"])
 @jwt_required()
@@ -187,6 +204,19 @@ def me():
     user = db.session.get(User, get_jwt_identity())
     if not user: return jsonify({"error": "User not found."}), 404
     return jsonify({"id": user.id, "username": user.username, "email": user.email, "role": user.role}), 200
+
+@app.route("/api/check-auth", methods=["GET"])
+@jwt_required()
+def check_auth():
+    user = db.session.get(User, get_jwt_identity())
+    if not user: return jsonify({"error": "User not found."}), 404
+    return jsonify({"user_id": user.id, "username": user.username, "role": user.role}), 200
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    resp = jsonify({"message": "Successfully logged out."})
+    unset_jwt_cookies(resp)
+    return resp, 200
 
 @app.route("/admin/users", methods=["GET"])
 @admin_required
@@ -281,7 +311,7 @@ def fetch_google_places(lat, lon, radius, category="Any"):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": google_places_key,
-        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews"
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.currentOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews"
     }
     all_places = []
     for ptype in place_types:
@@ -318,9 +348,9 @@ def fetch_google_places(lat, lon, radius, category="Any"):
                     category_mapped = "Shopping"; dest_type = "Indoor"
                 elif "park" in primary_type:
                     category_mapped = "Park"; dest_type = "Outdoor"
-                hours = place.get("regularOpeningHours", {})
+                hours = place.get("currentOpeningHours") or place.get("regularOpeningHours", {})
                 is_open = hours.get("openNow", None)
-                hours_display = "; ".join(hours.get("weekdayDescriptions", [])[:2])
+                hours_display = "; ".join(hours.get("weekdayDescriptions", [])[:3])
                 rating = place.get("rating")
                 user_rating_count = place.get("userRatingCount", 0)
                 
@@ -429,14 +459,24 @@ def calculate_local_scores(places, weather, preferred_category, env_type):
         if env_type != "Any" and p["type"] != env_type:
             p["score"] = 0
             continue
-        total = (dist_score * 0.20 + travel_score * 0.20 + rating_score * 0.20 +
-                 pop_score * 0.20 + weather_score * 0.10 + cat_score * 0.10) * 100
-        
+        # Open status (10%)
         reasons = []
+        if p.get("isOpen") is True:
+            open_score = 1.0
+            reasons.append("Currently Open")
+        elif p.get("isOpen") is False:
+            open_score = 0.0  # Heavy penalty for closed places
+            reasons.append("Currently Closed")
+        else:
+            open_score = 0.6  # Unknown, neutral
+        
+        total = (dist_score * 0.15 + travel_score * 0.15 + rating_score * 0.20 +
+                 pop_score * 0.20 + weather_score * 0.10 + cat_score * 0.10 + open_score * 0.10) * 100
+        
         if dist_score > 0.7: reasons.append("Nearby Location")
         if travel_score > 0.7: reasons.append("Short Travel Time")
         if rating_score >= 0.8: reasons.append("Highly Rated")
-        if weather_score >= 0.8: reasons.append(f"Ideal for Current Weather")
+        if weather_score >= 0.8: reasons.append("Ideal for Current Weather")
         if cat_score == 1.0 and preferred_category != "Any": reasons.append("Matches Category Preference")
 
         p["score"] = round(total)
@@ -574,7 +614,16 @@ def validate_schedule():
     if not places:
         return jsonify({"validation": "No places selected."}), 400
         
-    place_details = [f"{p['name']} ({p.get('category', 'Place')})" for p in places]
+    place_details = []
+    for p in places:
+        hours_info = p.get('hoursDisplay', '')
+        is_open = p.get('isOpen')
+        open_status = "currently open" if is_open is True else ("currently CLOSED" if is_open is False else "open status unknown")
+        detail = f"{p['name']} ({p.get('category', 'Place')}, {open_status})"
+        if hours_info:
+            detail += f" - Hours: {hours_info}"
+        place_details.append(detail)
+    
     prompt = f"""
 Current date and time is: {now_str}.
 The user wants to schedule an itinerary on {date_str} at {time_str}.
