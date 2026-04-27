@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL || API
 
-const API = API;
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function Admin() {
   const { token, role, logout } = useAuth();
