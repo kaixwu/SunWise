@@ -15,7 +15,7 @@ const getWeatherIcon = (condition = "", size = 48) => {
 };
 
 export default function Weather() {
-  const { weather, city, forecast, fullForecast, disasters, locationError, loading } = useData();
+  const { weather, city, forecast, fullForecast, disasters, locationError, loading, aqi, pollen } = useData();
   const [selectedDate, setSelectedDate] = useState(null);
 
   if (loading) {
@@ -59,12 +59,12 @@ export default function Weather() {
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
             <Sunrise size={28} color="#fbbf24" />
             <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Sunrise</div>
-            <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{new Date(weather.sys.sunrise * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+            <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{new Date(weather.sys.sunrise * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
             <Sunset size={28} color="#f87171" />
             <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Sunset</div>
-            <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{new Date(weather.sys.sunset * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+            <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{new Date(weather.sys.sunset * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
           </div>
         </div>
       </div>
@@ -81,6 +81,34 @@ export default function Weather() {
               <div style={{ fontSize: "0.85rem", color: "#cbd5e1" }}>{d.description}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {(aqi !== null || pollen !== null) && (
+        <div className="glass-card" style={{ marginBottom: "32px", padding: "20px 24px", border: "1px solid var(--glass-border)", background: "rgba(15, 23, 42, 0.3)" }}>
+          <h3 className="font-heading" style={{ fontSize: "1.15rem", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+            🌍 Environmental Health
+          </h3>
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
+            {aqi !== null && (
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "8px" }}>Air Quality Index</div>
+                <div style={{ fontSize: "2rem", fontWeight: 700, color: aqi <= 50 ? '#4ade80' : aqi <= 100 ? '#facc15' : '#f87171' }}>{aqi}</div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  {aqi <= 50 ? 'Good' : aqi <= 100 ? 'Moderate' : 'Unhealthy'}
+                </div>
+              </div>
+            )}
+            {pollen !== null && (
+              <div style={{ flex: 1, minWidth: "150px" }}>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "8px" }}>Pollen Level</div>
+                <div style={{ fontSize: "2rem", fontWeight: 700, color: pollen <= 1 ? '#4ade80' : pollen <= 3 ? '#facc15' : '#f87171' }}>
+                  {pollen <= 1 ? 'Low' : pollen <= 3 ? 'Moderate' : 'High'}
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>Grass/Tree/Weed</div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -102,7 +130,7 @@ export default function Weather() {
           );
         })}
       </div>
-      
+
       {selectedDate && selectedDayForecast.length > 0 && (
         <div className="glass-card" style={{ marginBottom: "32px", padding: "24px", background: "rgba(15, 23, 42, 0.5)", border: "1px solid var(--accent-teal)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
@@ -112,7 +140,7 @@ export default function Weather() {
           <div style={{ display: "flex", gap: "16px", overflowX: "auto", paddingBottom: "8px" }}>
             {selectedDayForecast.map((f, i) => (
               <div key={i} style={{ minWidth: "80px", textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.03)", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.05)" }}>
-                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "8px" }}>{new Date(f.dt_txt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "8px" }}>{new Date(f.dt_txt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                 <div style={{ display: "flex", justifyContent: "center", margin: "8px 0" }}>{getWeatherIcon(f.weather[0].description, 28)}</div>
                 <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{Math.round(f.main.temp)}°C</div>
               </div>

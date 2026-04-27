@@ -32,8 +32,33 @@ export const DataProvider = ({ children }) => {
   const [envType, setEnvType] = useState("Any");
   const [prefType, setPrefType] = useState("Any");
   const [radius, setRadius] = useState(10000);
+  const [aqi, setAqi] = useState(null);
+const [pollen, setPollen] = useState(null);
 
   const isInitialFetchDone = useRef(false);
+
+  const fetchEnvironment = async (lat, lon) => {
+  try {
+    const [aqiRes, pollenRes] = await Promise.all([
+      axios.post('/api/air-quality', { lat, lon }),
+      axios.post('/api/pollen', { lat, lon })
+    ]);
+    const aqiData = aqiRes.data;
+    const pollenData = pollenRes.data;
+    // AQI: get the universal AQI value
+    const aqiValue = aqiData?.indexes?.[0]?.aqi;
+    // Pollen: get the highest pollen index among grass/tree/weed for today
+    let pollenLevel = 0;
+    const dailyInfo = pollenData?.dailyInfo?.[0];
+    if (dailyInfo?.pollenTypeInfo) {
+      pollenLevel = Math.max(...dailyInfo.pollenTypeInfo.map(t => t.indexInfo?.value || 0));
+    }
+    setAqi(aqiValue);
+    setPollen(pollenLevel);
+  } catch (err) {
+    console.error('Environment fetch error:', err);
+  }
+};
 
   const fetchPlaces = async (lat, lon, wData, searchRadius, category, env) => {
     if (!wData) return;
@@ -84,6 +109,7 @@ export const DataProvider = ({ children }) => {
         .catch(err => console.error("GDACS error", err));
 
       setCurrentCoords({ lat, lon });
+      fetchEnvironment(lat, lon);
       isInitialFetchDone.current = true;
       
       // Async fetch places in background
@@ -129,7 +155,7 @@ export const DataProvider = ({ children }) => {
     city, weather, forecast, fullForecast, disasters, places, currentCoords,
     loading, placesLoading, locationError, setLocationError, fetcheverything,
     envType, setEnvType, prefType, setPrefType, radius, setRadius,
-    todayPlan, setTodayPlan
+    todayPlan, setTodayPlan, aqi, pollen
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -23,7 +23,6 @@ from functools import wraps
 
 load_dotenv(override=True)
 print(f"Loaded Gemini Key: {os.getenv('GEMINI_API_KEY', '')[:5]}...")
-print(f"Loaded TomTom Key: {os.getenv('TOMTOM_API_KEY', '')[:8]}...")
 print(f"Loaded Google Places Key: {os.getenv('GOOGLE_PLACES_API_KEY', '')[:8]}...")
 
 app = Flask(__name__)
@@ -38,7 +37,6 @@ app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "fallback-secret")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
 is_production = os.getenv("FLASK_ENV") == "production"
-# Secure + SameSite=None required for cross-domain cookies (Vercel frontend + Render backend)
 app.config["JWT_COOKIE_SECURE"] = is_production
 app.config["JWT_COOKIE_SAMESITE"] = "None" if is_production else "Lax"
 app.config["JWT_COOKIE_CSRF_PROTECT"] = True
@@ -68,10 +66,9 @@ limiter = Limiter(
 )
 
 gemini_client = google_genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-tomtom_key = os.getenv("TOMTOM_API_KEY")
 google_places_key = os.getenv("GOOGLE_PLACES_API_KEY")
 
-# ── MODELS ───────────────────────────────────────────────────────────────────
+# ── MODELS (unchanged) ──────────────────────────────────────────────────────
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -159,6 +156,8 @@ def log_security_event(ip, email, status):
     db.session.commit()
 
 # ── AUTH ROUTES (unchanged) ─────────────────────────────────────────────────
+# (All auth routes remain identical – register, login, me, check-auth, logout, admin)
+
 @app.route("/register", methods=["POST"])
 @limiter.limit("5 per minute")
 def register():
@@ -397,44 +396,93 @@ def fetch_google_places(lat, lon, radius, category="Any"):
         unique.append(p)
     return unique
 
-# ── TOMTOM MATRIX ───────────────────────────────────────────────────────────
-def get_tomtom_travel_times(origin_lat, origin_lon, destinations):
-    if not tomtom_key or not destinations:
+# ── GOOGLE ROUTES API ───────────────────────────────────────────────────────────
+def get_google_travel_times(origin_lat, origin_lon, destinations):
+    if not google_places_key or not destinations:
         return
-    origins = f"{origin_lat},{origin_lon}"
-    dests = "|".join([f"{d['lat']},{d['lon']}" for d in destinations])
-    url = f"https://api.tomtom.com/routing/1/matrix/sync/{origins}:{dests}/json"
-    params = {"key": tomtom_key, "routeType": "fastest", "traffic": "true", "travelMode": "car"}
+
+    url = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": google_places_key,
+        "X-Goog-FieldMask": "originIndex,destinationIndex,duration,distanceMeters,status"
+    }
+
+    body = {
+        "origins": [{"waypoint": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lon}}}}],
+        "destinations": [{"waypoint": {"location": {"latLng": {"latitude": d["lat"], "longitude": d["lon"]}}}} for d in destinations],
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE"
+    }
+
     try:
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.post(url, headers=headers, json=body, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
-            matrix = data.get("matrix", [[]])
-            if matrix and matrix[0]:
-                times = matrix[0]
-                for i, d in enumerate(destinations):
-                    if i < len(times) and "travelTimeInSeconds" in times[i]:
-                        d["travelMins"] = round(times[i]["travelTimeInSeconds"] / 60)
-                    else:
-                        d["travelMins"] = round(d["distance"] * 4)
+            for d in destinations:
+                d["travelMins"] = round(d["distance"] * 4)  # default
+            for entry in data:
+                i = entry.get("destinationIndex")
+                if i is not None and i < len(destinations):
+                    duration_str = entry.get("duration")
+                    if duration_str:
+                        destinations[i]["travelMins"] = round(int(duration_str.strip("s")) / 60)
         else:
             for d in destinations:
                 d["travelMins"] = round(d["distance"] * 4)
-    except:
+    except Exception as e:
+        print(f"[Google Routes] Matrix error: {e}")
         for d in destinations:
             d["travelMins"] = round(d["distance"] * 4)
 
+# ── ENVIRONMENTAL DATA HELPERS ───────────────────────────────────────────────
+def fetch_aqi(lat, lon):
+    try:
+        url = "https://airquality.googleapis.com/v1/currentConditions:lookup"
+        headers = {"Content-Type": "application/json"}
+        body = {"location": {"latitude": lat, "longitude": lon}}
+        resp = requests.post(url, headers=headers, json=body, params={"key": google_places_key}, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("indexes", [{}])[0].get("aqi", None)
+    except Exception as e:
+        print(f"AQI fetch error: {e}")
+    return None
+
+def fetch_pollen_level(lat, lon):
+    try:
+        url = "https://pollen.googleapis.com/v1/forecast:lookup"
+        params = {
+            "location.latitude": lat,
+            "location.longitude": lon,
+            "days": 1,
+            "plants": ["GRASS", "TREE", "WEED"],
+            "key": google_places_key
+        }
+        resp = requests.get(url, params=params, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            daily_info = data.get("dailyInfo", [{}])
+            if daily_info:
+                types = daily_info[0].get("pollenTypeInfo", [])
+                if types:
+                    return max(t.get("indexInfo", {}).get("value", 0) for t in types)
+    except Exception as e:
+        print(f"Pollen fetch error: {e}")
+    return None
+
 # ── LOCAL SCORING ALGORITHM ─────────────────────────────────────────────────
-def calculate_local_scores(places, weather, preferred_category, env_type):
+def calculate_local_scores(places, weather, preferred_category, env_type, aqi=None, pollen_level=None):
     if not places:
         return []
     max_dist = max(p["distance"] for p in places)
     max_travel = max(p.get("travelMins", 30) for p in places)
     max_rating_count = max((p.get("userRatingCount") or 1) for p in places)
+
     for p in places:
-        # Distance score (20%)
+        # Distance score (15%)
         dist_score = 1 - (p["distance"] / max_dist) if max_dist > 0 else 1
-        # Travel time score (20%)
+        # Travel time score (15%)
         travel = p.get("travelMins", 30)
         travel_score = 1 - (travel / max_travel) if max_travel > 0 else 1
         # Rating score (20%)
@@ -443,49 +491,80 @@ def calculate_local_scores(places, weather, preferred_category, env_type):
         # Popularity score (20%)
         count = p.get("userRatingCount") or 1
         pop_score = math.log(count + 1) / math.log(max_rating_count + 1) if max_rating_count > 0 else 0.5
-        # Weather match (10%)
+
+        # Environmental / Health score (15% total, incorporating weather + AQI + pollen)
         temp = weather.get("temp", 30)
         rain = weather.get("rain_prob", 0)
+        health_score = 0.7  # base
+
+        # Weather fit
         if p["type"] == "Outdoor":
             if rain > 50 or temp > 33:
-                weather_score = 0.2
+                weather_fit = 0.2
             elif rain > 20:
-                weather_score = 0.4
+                weather_fit = 0.5
             else:
-                weather_score = 0.8
+                weather_fit = 0.8
         else:
-            weather_score = 0.9 if (rain > 50 or temp > 33) else 0.7
+            weather_fit = 0.9 if (rain > 50 or temp > 33) else 0.7
+
+        # Air quality penalty
+        if aqi is not None:
+            if aqi > 200:    # very unhealthy
+                health_score -= 0.3
+            elif aqi > 150:  # unhealthy
+                health_score -= 0.2
+            elif aqi > 100:  # moderate
+                health_score -= 0.1
+
+        # Pollen penalty (if pollen_level > 3 for grass/tree/weed)
+        if pollen_level is not None and pollen_level > 3:
+            health_score -= 0.2
+
+        health_score = max(0.1, health_score)
+
+        # Combine weather fit and health score (weighted)
+        environment_score = 0.5 * weather_fit + 0.5 * health_score
+
         # Category match (10%)
         cat_score = 1.0 if (p["category"] == preferred_category or preferred_category == "Any") else 0.5
-        # Environment filter
+
+        # Environment filter (hard filter)
         if env_type != "Any" and p["type"] != env_type:
             p["score"] = 0
             continue
+
         # Open status (10%)
         reasons = []
         if p.get("isOpen") is True:
             open_score = 1.0
             reasons.append("Currently Open")
         elif p.get("isOpen") is False:
-            open_score = 0.0  # Heavy penalty for closed places
+            open_score = 0.0
             reasons.append("Currently Closed")
         else:
-            open_score = 0.6  # Unknown, neutral
-        
-        total = (dist_score * 0.15 + travel_score * 0.15 + rating_score * 0.20 +
-                 pop_score * 0.20 + weather_score * 0.10 + cat_score * 0.10 + open_score * 0.10) * 100
-        
+            open_score = 0.6
+
+        # Combine all (weights sum to 1.0)
+        total = (dist_score * 0.15 + travel_score * 0.15 +
+                 rating_score * 0.20 + pop_score * 0.20 +
+                 environment_score * 0.15 + cat_score * 0.10 +
+                 open_score * 0.05) * 100
+
+        # Build reasons
         if dist_score > 0.7: reasons.append("Nearby Location")
         if travel_score > 0.7: reasons.append("Short Travel Time")
         if rating_score >= 0.8: reasons.append("Highly Rated")
-        if weather_score >= 0.8: reasons.append("Ideal for Current Weather")
+        if weather_fit >= 0.8: reasons.append("Ideal for Current Weather")
         if cat_score == 1.0 and preferred_category != "Any": reasons.append("Matches Category Preference")
+        if aqi is not None and aqi <= 50: reasons.append("Excellent Air Quality")
+        if pollen_level is not None and pollen_level <= 1: reasons.append("Low Pollen Levels")
 
         p["score"] = round(total)
         p["matchReasons"] = reasons
     return places
 
-# ── PLACES ENDPOINT ─────────────────────────────────────────────────────────
+# ── PLACES ENDPOINT (now with environmental data) ─────────────────────────────
 @app.route("/api/places", methods=["POST"])
 @jwt_required()
 def get_places():
@@ -501,8 +580,13 @@ def get_places():
     places = fetch_google_places(lat, lon, radius, category)
     if not places:
         return jsonify({"places": []}), 200
-    get_tomtom_travel_times(lat, lon, places)
-    scored = calculate_local_scores(places, weather, category, env_type)
+    get_google_travel_times(lat, lon, places)
+
+    # Fetch environmental data
+    aqi = fetch_aqi(lat, lon)
+    pollen = fetch_pollen_level(lat, lon)
+
+    scored = calculate_local_scores(places, weather, category, env_type, aqi=aqi, pollen_level=pollen)
     scored = [p for p in scored if p.get("score", 0) > 0]
     scored.sort(key=lambda x: x["score"], reverse=True)
     return jsonify({"places": scored[:20]}), 200
@@ -535,20 +619,16 @@ Return JSON: {{"stops": ["Place A", "Place B"], "explanation": "..."}}
     except Exception as e:
         return jsonify({"stops": place_names[:2], "explanation": "Top two picks based on your preferences."}), 200
 
-# ── SAVED PLACES & AI SUMMARY ───────────────────────────────────────────────
-
+# ── SAVED PLACES & AI SUMMARY (unchanged) ────────────────────────────────────
 @app.route("/api/saved-places", methods=["GET", "POST"])
 @jwt_required()
 def handle_saved_places():
     user_id = get_jwt_identity()
     if request.method == "POST":
         data = request.get_json()
-        
-        # Prevent duplicates
         existing = SavedPlace.query.filter_by(user_id=user_id, name=data.get("name")).first()
         if existing:
             return jsonify({"message": "Already saved", "id": existing.id}), 200
-            
         new_place = SavedPlace(
             user_id=user_id,
             name=data.get("name"),
@@ -587,14 +667,11 @@ def place_summary():
     data = request.get_json()
     place_name = data.get("name", "this place")
     reviews = data.get("reviews", [])
-    
     if not reviews:
         return jsonify({"summary": "Not enough reviews available to generate a summary."}), 200
-        
     prompt = f"Summarize the following user reviews for {place_name} into 2 to 3 short sentences. Highlight the best things people love and one thing to watch out for if mentioned. Make it sound helpful and friendly.\n\nReviews:\n"
     for idx, r in enumerate(reviews):
         prompt += f"- {r}\n"
-        
     try:
         resp = gemini_client.models.generate_content(model="gemini-2.5-flash-lite", contents=prompt)
         text = resp.text.strip()
@@ -602,6 +679,116 @@ def place_summary():
     except Exception as e:
         print(f"Gemini Summary Error: {e}")
         return jsonify({"summary": "Could not generate AI summary at this time."}), 200
+
+# ── ADDITIONAL ENDPOINTS (directory, route, itineraries, environmental) ──────
+@app.route("/api/directory", methods=["POST"])
+@jwt_required()
+def get_directory():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    if not lat or not lon or not google_places_key:
+        return jsonify({"stores": []}), 200
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": google_places_key,
+        "X-Goog-FieldMask": "places.displayName,places.primaryType"
+    }
+    body = {
+        "includedTypes": ["store", "restaurant", "cafe", "clothing_store", "shoe_store", "electronics_store"],
+        "maxResultCount": 20,
+        "locationRestriction": {
+            "circle": {"center": {"latitude": lat, "longitude": lon}, "radius": 200.0}
+        }
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+        if resp.status_code == 200:
+            stores = []
+            for p in resp.json().get("places", []):
+                name = p.get("displayName", {}).get("text", "")
+                ptype = p.get("primaryType", "Store").replace("_", " ").title()
+                if name: stores.append({"name": name, "type": ptype})
+            return jsonify({"stores": stores}), 200
+    except Exception as e:
+        print(f"[Directory] Error: {e}")
+    return jsonify({"stores": []}), 200
+
+@app.route("/api/route", methods=["POST"])
+@jwt_required()
+def get_route():
+    data = request.get_json()
+    start = data.get("start")
+    end = data.get("end")
+    if not google_places_key or not start or not end:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    url = "https://routes.googleapis.com/directions/v2:computeRoutes"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": google_places_key,
+        # Request only the fields we actually need
+        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline"
+    }
+
+    body = {
+        "origin": {"location": {"latLng": {"latitude": start["lat"], "longitude": start["lon"]}}},
+        "destination": {"location": {"latLng": {"latitude": end["lat"], "longitude": end["lon"]}}},
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE",
+        "polylineQuality": "HIGH_QUALITY"
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=15)
+        if resp.status_code == 200:
+            google_data = resp.json()
+            route = google_data.get("routes", [{}])[0]
+            encoded_polyline = route.get("polyline", {}).get("encodedPolyline", "")
+
+            # Convert encoded polyline to list of {lat, lng} points
+            points = []
+            if encoded_polyline:
+                # Use Google's own polyline decoder (we can use a simple library or built-in)
+                try:
+                    from polyline import decode      # use pip install polyline
+                    decoded = decode(encoded_polyline)
+                    # polyline library returns list of (lat, lng) tuples
+                    points = [{"latitude": coord[0], "longitude": coord[1]} for coord in decoded]
+                except ImportError:
+                    # fallback if polyline library not installed: return a straight line
+                    points = [
+                        {"latitude": start["lat"], "longitude": start["lon"]},
+                        {"latitude": end["lat"], "longitude": end["lon"]}
+                    ]
+
+            # Build a response that matches the TomTom format your frontend expects
+            duration_seconds = int(route.get("duration", "0s").strip("s")) if route.get("duration") else 0
+            distance_meters = int(route.get("distanceMeters", 0))
+
+            result = {
+                "routes": [{
+                    "summary": {
+                        "lengthInMeters": distance_meters,
+                        "travelTimeInSeconds": duration_seconds,
+                        "trafficDelayInSeconds": 0,           # optional, not always available
+                        "departureTime": datetime.utcnow().isoformat() + 'Z'
+                    },
+                    "legs": [{
+                        "points": points
+                    }]
+                }]
+            }
+            return jsonify(result), 200
+
+        # If Google returns an error, show the details in the backend terminal
+        print(f"❌ Routes API error: {resp.status_code}, {resp.text}")
+        return jsonify({"error": f"Routes API error: {resp.status_code}", "details": resp.text}), 400
+
+    except Exception as e:
+        print(f"❌ Route exception: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/validate-schedule", methods=["POST"])
 @jwt_required()
@@ -643,63 +830,6 @@ Then provide your explanation in under 3 sentences.
         print(f"Gemini Validation Error: {e}")
         return jsonify({"validation": "Could not validate schedule at this time."}), 200
 
-@app.route("/api/directory", methods=["POST"])
-@jwt_required()
-def get_directory():
-    data = request.get_json()
-    lat = data.get("lat")
-    lon = data.get("lon")
-    if not lat or not lon or not google_places_key:
-        return jsonify({"stores": []}), 200
-    
-    url = "https://places.googleapis.com/v1/places:searchNearby"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": google_places_key,
-        "X-Goog-FieldMask": "places.displayName,places.primaryType"
-    }
-    body = {
-        "includedTypes": ["store", "restaurant", "cafe", "clothing_store", "shoe_store", "electronics_store"],
-        "maxResultCount": 20,
-        "locationRestriction": {
-            "circle": {"center": {"latitude": lat, "longitude": lon}, "radius": 200.0}
-        }
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=body, timeout=10)
-        if resp.status_code == 200:
-            stores = []
-            for p in resp.json().get("places", []):
-                name = p.get("displayName", {}).get("text", "")
-                ptype = p.get("primaryType", "Store").replace("_", " ").title()
-                if name: stores.append({"name": name, "type": ptype})
-            return jsonify({"stores": stores}), 200
-    except Exception as e:
-        print(f"[Directory] Error: {e}")
-    return jsonify({"stores": []}), 200
-
-@app.route("/api/route", methods=["POST"])
-@jwt_required()
-def get_route():
-    data = request.get_json()
-    start = data.get("start")
-    end = data.get("end")
-    if not tomtom_key or not start or not end:
-        return jsonify({"error": "Missing parameters"}), 400
-    
-    url = f"https://api.tomtom.com/routing/1/calculateRoute/{start['lat']},{start['lon']}:{end['lat']},{end['lon']}/json"
-    params = {"key": tomtom_key, "routeType": "fastest", "traffic": "true", "travelMode": "car"}
-    try:
-        resp = requests.get(url, params=params, timeout=10)
-        if resp.status_code == 200:
-            return jsonify(resp.json()), 200
-        return jsonify({"error": "Failed to fetch route"}), 400
-    except Exception as e:
-        import traceback
-        print("❌ Route error:")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
 @app.route("/api/itineraries", methods=["GET", "POST"])
 @jwt_required()
 def handle_itineraries():
@@ -715,7 +845,6 @@ def handle_itineraries():
         db.session.add(new_itin)
         db.session.commit()
         return jsonify({"message": "Schedule confirmed!"}), 201
-    
     # GET method
     itins = Itinerary.query.filter_by(user_id=user_id).order_by(Itinerary.created_at.desc()).all()
     results = []
@@ -728,6 +857,127 @@ def handle_itineraries():
             "created_at": it.created_at.isoformat()
         })
     return jsonify(results), 200
+
+@app.route("/api/air-quality", methods=["POST"])
+@jwt_required()
+def get_air_quality():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    if not google_places_key or not lat or not lon:
+        return jsonify({"error": "Missing coordinates"}), 400
+
+    url = "https://airquality.googleapis.com/v1/currentConditions:lookup"
+    headers = {"Content-Type": "application/json"}
+    body = {
+        "location": {"latitude": lat, "longitude": lon},
+        "extraComputations": ["HEALTH_RECOMMENDATIONS", "POLLUTANT_CONCENTRATION"]
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=body, params={"key": google_places_key}, timeout=10)
+        if resp.status_code == 200:
+            return jsonify(resp.json()), 200
+        # Debug output
+        print(f"❌ Air Quality API error: {resp.status_code}")
+        print(resp.text)
+        return jsonify({"error": "Air quality data unavailable", "details": resp.text}), 400
+    except Exception as e:
+        print(f"❌ Air Quality exception: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/pollen", methods=["POST"])
+@jwt_required()
+def get_pollen():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    if not google_places_key or not lat or not lon:
+        return jsonify({"error": "Missing coordinates"}), 400
+
+    url = "https://pollen.googleapis.com/v1/forecast:lookup"
+    try:
+        resp = requests.get(url, params={
+            "location.latitude": lat,
+            "location.longitude": lon,
+            "days": 1,
+            "plants": ["GRASS", "TREE", "WEED"],
+            "key": google_places_key
+        }, timeout=10)
+        if resp.status_code == 200:
+            return jsonify(resp.json()), 200
+        # Debug output
+        print(f"❌ Pollen API error: {resp.status_code}")
+        print(resp.text)
+        return jsonify({"error": "Pollen data unavailable", "details": resp.text}), 400
+    except Exception as e:
+        print(f"❌ Pollen exception: {e}")
+        return jsonify({"error": str(e)}), 500
+        
+@app.route("/api/solar", methods=["POST"])
+@jwt_required()
+def get_solar():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    if not google_places_key or not lat or not lon:
+        return jsonify({"error": "Missing coordinates"}), 400
+
+    url = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
+    try:
+        resp = requests.get(url, params={
+            "location.latitude": lat,
+            "location.longitude": lon,
+            "requiredQuality": "HIGH",
+            "key": google_places_key
+        }, timeout=10)
+        if resp.status_code == 200:
+            return jsonify(resp.json()), 200
+        return jsonify({"error": "Solar data unavailable"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/timezone", methods=["POST"])
+@jwt_required()
+def get_timezone():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    timestamp = int(datetime.utcnow().timestamp())
+    if not google_places_key or not lat or not lon:
+        return jsonify({"error": "Missing coordinates"}), 400
+
+    url = "https://maps.googleapis.com/maps/api/timezone/json"
+    try:
+        resp = requests.get(url, params={
+            "location": f"{lat},{lon}",
+            "timestamp": timestamp,
+            "key": google_places_key
+        }, timeout=10)
+        if resp.status_code == 200:
+            return jsonify(resp.json()), 200
+        return jsonify({"error": "Timezone data unavailable"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/aerial-view", methods=["POST"])
+@jwt_required()
+def get_aerial_view():
+    data = request.get_json()
+    lat = data.get("lat")
+    lon = data.get("lon")
+    if not google_places_key or not lat or not lon:
+        return jsonify({"error": "Missing coordinates"}), 400
+
+    url = "https://aerialview.googleapis.com/v1/video:lookupVideo"
+    try:
+        resp = requests.post(url, params={"key": google_places_key},
+            json={"location": {"latitude": lat, "longitude": lon}},
+            timeout=10)
+        if resp.status_code == 200:
+            return jsonify(resp.json()), 200
+        return jsonify({"error": "Aerial view unavailable"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)

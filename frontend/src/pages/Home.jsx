@@ -28,8 +28,8 @@ function MapFlyTo({ center }) {
 
 export default function Home() {
   const { token } = useAuth();
-  const { 
-    city, weather, currentCoords, loading, locationError, setLocationError, fetcheverything, places, todayPlan
+  const {
+    city, weather, currentCoords, loading, locationError, setLocationError, fetcheverything, places, todayPlan, aqi, pollen
   } = useData();
 
   const [manualCity, setManualCity] = useState("");
@@ -112,7 +112,7 @@ export default function Home() {
         <MapIcon size={32} color="var(--accent-blue)" />
         <h2 className="font-heading" style={{ margin: 0 }}>Overview</h2>
       </div>
-      
+
       {locationError ? (
         <div className="glass-card" style={{ textAlign: "center", padding: "40px" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: "16px" }}><AlertCircle size={48} color="var(--accent-blue)" /></div>
@@ -138,7 +138,7 @@ export default function Home() {
         <div className="skeleton" style={{ height: "300px", marginBottom: "32px" }}></div>
       ) : weather && currentCoords ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "24px", alignItems: "flex-start" }}>
-          
+
           <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: "24px" }}>
             <div className="glass-card" style={{ display: "flex", flexDirection: "column", padding: "32px", borderTop: "4px solid var(--accent-blue)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
@@ -150,13 +150,38 @@ export default function Home() {
               <div style={{ color: "var(--accent-teal)", textTransform: "capitalize", fontWeight: "600" }}>{weather.weather[0].description}</div>
             </div>
 
+            <div style={{ marginTop: "12px", display: "flex", gap: "16px", alignItems: "center" }}>
+              {aqi !== null && (
+                <div style={{
+                  background: aqi <= 50 ? 'rgba(34,197,94,0.15)' : aqi <= 100 ? 'rgba(250,204,21,0.15)' : 'rgba(239,68,68,0.15)',
+                  border: '1px solid',
+                  borderColor: aqi <= 50 ? '#4ade80' : aqi <= 100 ? '#facc15' : '#f87171',
+                  borderRadius: '12px', padding: '4px 10px', fontSize: '0.8rem', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: '6px'
+                }}>
+                  <span>🍃 AQI {aqi}</span>
+                </div>
+              )}
+              {pollen !== null && (
+                <div style={{
+                  background: pollen <= 1 ? 'rgba(34,197,94,0.15)' : pollen <= 3 ? 'rgba(250,204,21,0.15)' : 'rgba(239,68,68,0.15)',
+                  border: '1px solid',
+                  borderColor: pollen <= 1 ? '#4ade80' : pollen <= 3 ? '#facc15' : '#f87171',
+                  borderRadius: '12px', padding: '4px 10px', fontSize: '0.8rem', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: '6px'
+                }}>
+                  <span>🌼 Pollen {pollen <= 1 ? 'Low' : pollen <= 3 ? 'Moderate' : 'High'}</span>
+                </div>
+              )}
+            </div>
+
             {/* Today's Plan */}
             <div className="glass-card" style={{ padding: "24px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px" }}>
                 <Navigation size={20} color="var(--accent-blue)" />
                 <h3 className="font-heading" style={{ margin: 0, fontSize: "1.2rem" }}>Today's Plan</h3>
               </div>
-              
+
               {!todayPlan ? (
                 <div style={{ color: "var(--text-muted)", fontSize: "0.9rem", textAlign: "center", padding: "20px 0" }}>
                   No plan scheduled for today. Go to the Planner to build one!
@@ -177,13 +202,13 @@ export default function Home() {
             </div>
 
           </div>
-          
+
           <div style={{ flex: "1 1 600px", borderRadius: "16px", overflow: "hidden", border: "1px solid var(--glass-border)", height: "600px", position: "relative" }}>
             <MapContainer center={[currentCoords.lat, currentCoords.lon]} zoom={13} style={{ height: "100%", width: "100%" }}>
               <MapFlyTo center={[currentCoords.lat, currentCoords.lon]} />
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a>' />
               <TileLayer url="https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=hLvRIfmyuzqpTNvtrZ3Y0gV1HAA3eLFj" attribution='&copy; <a href="https://www.tomtom.com/">TomTom Live Traffic</a>' opacity={0.7} />
-              
+
               {/* User Location Marker */}
               <Marker position={[currentCoords.lat, currentCoords.lon]}>
                 <Popup><strong>You are here</strong></Popup>
@@ -192,7 +217,7 @@ export default function Home() {
               {(routePolyline.length > 0 ? [routeDest] : places.slice(0, 10)).map((p, i) => p && (
                 <Marker key={i} position={[p.lat, p.lon]}>
                   <Popup>
-                    <strong>{p.name}</strong><br/>{p.category}<br/>
+                    <strong>{p.name}</strong><br />{p.category}<br />
                     {routePolyline.length === 0 && (
                       <button onClick={() => drawRoute(p)} style={{ marginTop: "8px", padding: "4px 8px", background: "var(--accent-blue)", border: "none", borderRadius: "4px", color: "#fff", cursor: "pointer", fontSize: "0.8rem" }}>Show Route</button>
                     )}
@@ -204,7 +229,7 @@ export default function Home() {
                 <Polyline positions={routePolyline} color="var(--accent-blue)" weight={6} opacity={0.8} />
               )}
             </MapContainer>
-            
+
             {routeInfo && !routingLoading && (
               <div className="glass-card" style={{ position: "absolute", bottom: "24px", left: "24px", right: "24px", zIndex: 1000, padding: "16px", background: "rgba(15, 23, 42, 0.85)", border: "1px solid var(--accent-blue)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
