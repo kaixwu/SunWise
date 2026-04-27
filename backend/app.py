@@ -37,8 +37,10 @@ CORS(app, supports_credentials=True, origins=[
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "fallback-secret")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = 86400
 app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
-# Secure cookies require HTTPS. In production, FLASK_ENV should be 'production'
-app.config["JWT_COOKIE_SECURE"] = os.getenv("FLASK_ENV") == "production"
+is_production = os.getenv("FLASK_ENV") == "production"
+# Secure + SameSite=None required for cross-domain cookies (Vercel frontend + Render backend)
+app.config["JWT_COOKIE_SECURE"] = is_production
+app.config["JWT_COOKIE_SAMESITE"] = "None" if is_production else "Lax"
 app.config["JWT_COOKIE_CSRF_PROTECT"] = True
 
 db_url = os.getenv("DATABASE_URL")
