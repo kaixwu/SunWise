@@ -173,7 +173,14 @@ export default function Home() {
       setRoutingLoading(false);
     }
   };
-
+  const getCityFontSize = (text) => {
+    const len = text.length;
+    if (len <= 12) return 'clamp(4.5rem, 11vw, 9rem)';
+    if (len <= 20) return 'clamp(3.5rem, 8vw,  7rem)';
+    if (len <= 30) return 'clamp(2.5rem, 6vw,  5rem)';
+    if (len <= 45) return 'clamp(1.8rem, 4vw,  3.5rem)';
+    return 'clamp(1.4rem, 3vw,  2.8rem)';
+  };
   // ── HERO SECTION ─────────────────────────────────────────────────────────
   const renderHero = () => (
     <div className="hero-section">
@@ -268,7 +275,10 @@ export default function Home() {
           <div className="hero-eyebrow">
             <MapPin size={12} /> Discover Philippines
           </div>
-          <div className="hero-city-name">
+          <div
+            className="hero-city-name"
+            style={{ fontSize: getCityFontSize(displayCity || 'YOUR CITY') }}
+          >
             {displayCity || 'YOUR CITY'}
           </div>
           <div className="hero-weather-row">
