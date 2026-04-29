@@ -293,6 +293,36 @@ def autocomplete():
         print(f"[Autocomplete] Error: {e}")
         return jsonify({"suggestions": []}), 200
 
+@app.route("/api/hero-image", methods=["POST"])
+def hero_image():
+    data = request.get_json()
+    query = data.get("query", "philippines tropical landscape")
+    unsplash_key = os.getenv("UNSPLASH_ACCESS_KEY")
+
+    if not unsplash_key:
+        return jsonify({"url": None}), 200
+
+    url = "https://api.unsplash.com/photos/random"
+    headers = {"Authorization": f"Client-ID {unsplash_key}"}
+    params = {
+        "query": query,
+        "orientation": "landscape",
+        "count": 1,
+        "w": 1920,
+        "q": 80
+    }
+    try:
+        resp = requests.get(url, headers=headers, params=params, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                img_url = data[0]["urls"]["raw"] + "&w=1920&q=80"
+                return jsonify({"url": img_url}), 200
+    except Exception as e:
+        print(f"Unsplash error: {e}")
+
+    return jsonify({"url": None}), 200
+
 @app.route("/api/place-details", methods=["POST"])
 def place_details():
     data = request.get_json()
