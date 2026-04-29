@@ -15,7 +15,7 @@ const getWeatherIcon = (condition = "", size = 48) => {
 };
 
 export default function Weather() {
-  const { weather, city, forecast, fullForecast, disasters, locationError, loading } = useData();
+  const { weather, city, forecast, fullForecast, disasters, locationError, loading, userCity } = useData();
   const [selectedDate, setSelectedDate] = useState(null);
 
   if (loading) {
@@ -38,7 +38,10 @@ export default function Weather() {
 
       <div className="glass-card" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", marginBottom: "32px", padding: "32px", borderTop: "4px solid var(--accent-blue)" }}>
         <div>
-          <div style={{ color: "var(--text-muted)", fontWeight: "600", fontSize: "1.1rem", marginBottom: "8px" }}>{city}</div>
+          {/* Use userCity if available, otherwise fallback to weather station city */}
+          <div style={{ color: "var(--text-muted)", fontWeight: "600", fontSize: "1.1rem", marginBottom: "8px" }}>
+            {userCity || city}
+          </div>
           <div style={{ fontSize: "3.5rem", fontWeight: "300", fontFamily: "var(--font-heading)", display: "flex", alignItems: "center", gap: "16px" }}>
             {getWeatherIcon(weather.weather[0].description, 56)}
             {Math.round(weather.main.temp)}°C
