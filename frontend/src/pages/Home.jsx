@@ -29,7 +29,9 @@ function MapFlyTo({ center }) {
 export default function Home() {
   const { token } = useAuth();
   const {
-    city, weather, currentCoords, loading, locationError, setLocationError, fetcheverything, places, todayPlan, radius
+    city, weather, currentCoords, loading, locationError, setLocationError,
+    fetcheverything, places, todayPlan, radius,
+    userCity, setUserCity    // ← added
   } = useData();
 
   const [manualCity, setManualCity] = useState("");
@@ -58,6 +60,7 @@ export default function Home() {
   const selectSuggestion = async (sug) => {
     setManualCity(sug.formatted);
     setShowSuggestions(false);
+    setUserCity(sug.formatted);          // ← save the chosen name
 
     // If the suggestion includes a place_id, use Google Place Details
     if (sug.place_id) {
@@ -67,11 +70,9 @@ export default function Home() {
         fetcheverything(lat, lon, radius);
       } catch (err) {
         console.error("Place details failed, falling back to Nominatim:", err);
-        // Fallback to Nominatim if the Google endpoint fails
         geocodeWithNominatim(sug.formatted);
       }
     } else {
-      // No place_id – use Nominatim as before
       geocodeWithNominatim(sug.formatted);
     }
   };
@@ -95,6 +96,7 @@ export default function Home() {
     if (!manualCity) return;
     setLoading(true);
     setLocationError(false);
+    setUserCity(manualCity);             // ← save the typed‑in name
     geocodeWithNominatim(manualCity);
   };
 
@@ -155,8 +157,16 @@ export default function Home() {
             <div className="glass-card" style={{ display: "flex", flexDirection: "column", padding: "32px", borderTop: "4px solid var(--accent-blue)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
                 <MapPin size={20} color="var(--text-muted)" />
-                <div style={{ color: "var(--text-muted)", fontWeight: "600", fontSize: "1.1rem" }}>{city}</div>
-                <button onClick={() => { setLocationError(true); }} style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid var(--accent-blue)", color: "var(--accent-blue)", padding: "4px 10px", borderRadius: "20px", fontSize: "0.75rem", cursor: "pointer", fontWeight: "600", marginLeft: "auto" }}>Change Area</button>
+                {/* Show user‑chosen name, fallback to weather station name */}
+                <div style={{ color: "var(--text-muted)", fontWeight: "600", fontSize: "1.1rem" }}>
+                  {userCity || city}
+                </div>
+                <button onClick={() => {
+                  setUserCity(null);           // reset custom city name
+                  setLocationError(true);
+                }} style={{ background: "rgba(56, 189, 248, 0.1)", border: "1px solid var(--accent-blue)", color: "var(--accent-blue)", padding: "4px 10px", borderRadius: "20px", fontSize: "0.75rem", cursor: "pointer", fontWeight: "600", marginLeft: "auto" }}>
+                  Change Area
+                </button>
               </div>
               <div style={{ fontSize: "3rem", fontWeight: "300", fontFamily: "var(--font-heading)" }}>{Math.round(weather.main.temp)}°C</div>
               <div style={{ color: "var(--accent-teal)", textTransform: "capitalize", fontWeight: "600" }}>{weather.weather[0].description}</div>

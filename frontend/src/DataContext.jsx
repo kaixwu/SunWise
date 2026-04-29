@@ -40,6 +40,9 @@ export const DataProvider = ({ children }) => {
   const [prefType, setPrefType] = useState("Any");
   const [radius, setRadius] = useState(10000);
 
+  // User‑overridden city name (from autocomplete / manual search)
+  const [userCity, setUserCity] = useState(null);
+
   const isInitialFetchDone = useRef(false);
 
   const fetchPlaces = async (lat, lon, wData, searchRadius, category, env) => {
@@ -130,7 +133,11 @@ export const DataProvider = ({ children }) => {
     fetchItineraries();
 
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => fetcheverything(coords.latitude, coords.longitude, radius),
+      ({ coords }) => {
+        // Clear any manually‑set city name when using automatic location
+        setUserCity(null);
+        fetcheverything(coords.latitude, coords.longitude, radius);
+      },
       () => { setLoading(false); setLocationError(true); },
       { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
     );
@@ -153,6 +160,7 @@ export const DataProvider = ({ children }) => {
     todayPlan, setTodayPlan,
     allItineraries,
     refreshItineraries: fetchItineraries,
+    userCity, setUserCity,    // ← new
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
