@@ -14,6 +14,15 @@ export default function Navbar() {
   const isAnimating = useRef(false);
   const tl = useRef(null);
   const splitLinks = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 40);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
   
   const navItems = [
     { name: "Home", path: "/home" },
@@ -130,11 +139,11 @@ export default function Navbar() {
   return (
     <>
       <nav 
-        className="nav-wrapper" 
+        className={`nav-wrapper ${scrolled ? "scrolled" : ""} ${location.pathname !== "/home" ? "not-home" : ""}`} 
         style={{ 
-          position: location.pathname === "/home" ? "absolute" : "sticky", 
+          position: location.pathname === "/home" ? "fixed" : "sticky", 
           top: 0, 
-          zIndex: 1000,
+          zIndex: 2001,
           marginBottom: location.pathname === "/home" ? "0" : "24px" 
         }}
       >

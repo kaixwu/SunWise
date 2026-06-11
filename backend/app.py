@@ -602,11 +602,19 @@ def fetch_google_places_text_search(lat, lon, radius, keyword):
                 is_open = oh.get("openNow")
             # Photo
             photo_url = None
+            photo_url_secondary = None
+            photo_urls = []
             photos = place.get("photos", [])
             if photos:
-                photo_ref = photos[0].get("name", "")
-                if photo_ref:
-                    photo_url = f"https://places.googleapis.com/v1/{photo_ref}/media?maxWidthPx=800&key={google_places_key}"
+                sorted_photos = sorted(photos[:5], key=lambda p: (p.get("widthPx", 0) or 0) * (p.get("heightPx", 0) or 0), reverse=True)
+                for p in sorted_photos:
+                    photo_ref = p.get("name", "")
+                    if photo_ref:
+                        photo_urls.append(f"https://places.googleapis.com/v1/{photo_ref}/media?maxHeightPx=800&maxWidthPx=800&key={google_places_key}")
+                if len(photo_urls) > 0:
+                    photo_url = photo_urls[0]
+                if len(photo_urls) > 1:
+                    photo_url_secondary = photo_urls[1]
             # Opening hours display text
             hours_display = None
             if oh and oh.get("weekdayDescriptions"):
@@ -632,6 +640,8 @@ def fetch_google_places_text_search(lat, lon, radius, keyword):
                 "isOpen": is_open,
                 "hoursDisplay": hours_display,
                 "photoUrl": photo_url,
+                "photoUrlSecondary": photo_url_secondary,
+                "photoUrls": photo_urls,
                 "reviews": reviews_list,
                 "travelMins": 0,
                 "score": 0,
@@ -724,11 +734,19 @@ def fetch_google_places(lat, lon, radius, category="Any", keyword=None):
             
             photos = place.get("photos", [])
             photo_url = None
+            photo_url_secondary = None
+            photo_urls = []
             if photos:
-                # Choose the photo with the largest area among the first 5
-                best_photo = max(photos[:5], key=lambda p: (p.get("widthPx", 0) or 0) * (p.get("heightPx", 0) or 0), default=photos[0])
-                photo_name = best_photo["name"]
-                photo_url = f"https://places.googleapis.com/v1/{photo_name}/media?maxHeightPx=800&maxWidthPx=800&key={google_places_key}"
+                # Sort photos by resolution descending
+                sorted_photos = sorted(photos[:5], key=lambda p: (p.get("widthPx", 0) or 0) * (p.get("heightPx", 0) or 0), reverse=True)
+                for p in sorted_photos:
+                    photo_name = p.get("name")
+                    if photo_name:
+                        photo_urls.append(f"https://places.googleapis.com/v1/{photo_name}/media?maxHeightPx=800&maxWidthPx=800&key={google_places_key}")
+                if len(photo_urls) > 0:
+                    photo_url = photo_urls[0]
+                if len(photo_urls) > 1:
+                    photo_url_secondary = photo_urls[1]
             
             reviews = []
             for r in place.get("reviews", [])[:5]:
@@ -750,6 +768,8 @@ def fetch_google_places(lat, lon, radius, category="Any", keyword=None):
                 "rating": rating,
                 "userRatingCount": user_rating_count,
                 "photoUrl": photo_url,
+                "photoUrlSecondary": photo_url_secondary,
+                "photoUrls": photo_urls,
                 "reviews": reviews,
                 "google_place_id": place.get("id"),
                 "travelMins": 0,

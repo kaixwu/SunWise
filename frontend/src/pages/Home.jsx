@@ -27,6 +27,18 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
+const userLocationIcon = L.divIcon({
+  className: "custom-user-marker",
+  html: `
+    <div class="user-marker-container">
+      <div class="user-marker-pulse"></div>
+      <div class="user-marker-dot"></div>
+    </div>
+  `,
+  iconSize: [30, 30],
+  iconAnchor: [15, 15]
+});
+
 const getLocalDateString = () => {
   const now = new Date();
   const y = now.getFullYear();
@@ -694,7 +706,7 @@ export default function Home() {
                 attribution='&copy; <a href="https://www.tomtom.com/">TomTom</a>'
                 opacity={0.7}
               />
-              <Marker position={[currentCoords.lat, currentCoords.lon]}>
+              <Marker position={[currentCoords.lat, currentCoords.lon]} icon={userLocationIcon}>
                 <Popup><strong>You are here</strong></Popup>
               </Marker>
               {(routePolyline.length > 0 ? [routeDest] : places.slice(0, 10)).map((p, i) =>
