@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MapPin, Star, Car, Clock, CheckCircle, MessageSquare, Zap, CalendarCheck } from 'lucide-react';
-import publicAxios from '../publicAxios';
+import axios from 'axios';
 
 export default function PlaceModal({ place, onClose, onGoToday, onSchedule }) {
   const [aiSummary, setAiSummary] = useState(null);
@@ -12,7 +12,7 @@ export default function PlaceModal({ place, onClose, onGoToday, onSchedule }) {
     setFetchingDirectory(true);
     setDirectoryStores([]);
     try {
-      const res = await publicAxios.post("/api/directory", { lat: place.lat, lon: place.lon });
+      const res = await axios.post("/api/directory", { lat: place.lat, lon: place.lon });
       setDirectoryStores(res.data.stores);
     } catch (err) {
       console.error(err);
@@ -25,7 +25,8 @@ export default function PlaceModal({ place, onClose, onGoToday, onSchedule }) {
     if (!place.reviews || place.reviews.length === 0) return;
     setAiSummaryLoading(true);
     try {
-      const res = await publicAxios.post('/api/summarize-reviews', { reviews: place.reviews });
+      const reviewTexts = place.reviews.map(r => typeof r === 'object' ? r.text : r);
+      const res = await axios.post('/api/place-summary', { name: place.name, reviews: reviewTexts });
       setAiSummary(res.data.summary);
     } catch (err) {
       console.error(err);
@@ -41,7 +42,7 @@ export default function PlaceModal({ place, onClose, onGoToday, onSchedule }) {
         {/* Hero image */}
         <div className="modal-hero">
           {place.photoUrl ? (
-            <img className="modal-hero-img" src={place.photoUrl} alt={place.name} />
+            <img className="modal-hero-img" src={place.photoUrl} alt={place.name} loading="lazy" />
           ) : (
             <div style={{
               width: '100%', height: '100%',

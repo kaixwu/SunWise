@@ -84,7 +84,7 @@ export default function Weather() {
   };
 
   if (loading) {
-    return <div className="skeleton" style={{ height: "300px", maxWidth: "1200px", margin: "0 auto" }}></div>;
+    return <div className="skeleton" style={{ height: "300px", maxWidth: "1600px", margin: "0 auto" }}></div>;
   }
 
   const displayWeather = localWeather || contextWeather;
@@ -94,7 +94,7 @@ export default function Weather() {
 
   if (locationError || !displayWeather || !displayForecast || displayForecast.length === 0) {
     return (
-      <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 24px 24px", textAlign: "center" }}>
+      <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "0 24px 24px", textAlign: "center" }}>
         <p style={{ color: "var(--text-muted)" }}>Please set your location on the Home page first.</p>
       </div>
     );
@@ -115,7 +115,7 @@ export default function Weather() {
         />
         <div className="fluid-overlay" style={{ background: "rgba(4, 9, 20, 0.6)" }}></div>
       </div>
-    <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 24px 24px", position: "relative" }}>
+    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "0 24px 24px", position: "relative" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "16px" }}>
         <h2 className="font-heading" style={{ margin: 0 }}>Weather Hub</h2>
         <form onSubmit={handleSearch} style={{ display: "flex", gap: "8px" }}>

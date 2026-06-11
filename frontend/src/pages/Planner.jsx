@@ -26,33 +26,14 @@ export default function Planner() {
   // Place Detail Modal (same as Destinations page)
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailPlace, setDetailPlace] = useState(null);
-  const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
-  const [aiSummary, setAiSummary] = useState(null);
 
   const openDetail = (place) => {
     setDetailPlace(place);
-    setAiSummary(null);
     setDetailOpen(true);
   };
   const closeDetail = () => {
     setDetailOpen(false);
     setDetailPlace(null);
-    setAiSummary(null);
-  };
-  const generateReviewSummary = async (place) => {
-    setAiSummaryLoading(true);
-    setAiSummary(null);
-    try {
-      const reviewTexts = place.reviews
-        ? place.reviews.map(r => typeof r === 'object' ? r.text : r)
-        : [];
-      const res = await axios.post("/api/place-summary", { name: place.name, reviews: reviewTexts });
-      setAiSummary(res.data.summary);
-    } catch (err) {
-      setAiSummary("Failed to generate summary.");
-    } finally {
-      setAiSummaryLoading(false);
-    }
   };
 
   const handleExportPDF = async () => {
@@ -195,7 +176,7 @@ export default function Planner() {
   const upcomingItins = allItineraries.filter((it) => it.date_str > getLocalDateString());
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "0 24px 40px" }}>
+    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "0 24px 40px" }}>
       <div className="fluid-background-container" style={{ position: "fixed" }}>
         <FluidGradient 
           color1="#3b0764" 
@@ -390,124 +371,10 @@ export default function Planner() {
 
       {/* ── Place Detail Modal (same as Destinations page) ─────────────── */}
       {detailOpen && detailPlace && (
-        <div className="modal-backdrop" onClick={closeDetail}>
-          <div className="modal-panel" onClick={e => e.stopPropagation()}>
-            {/* Hero */}
-            <div className="modal-hero">
-              {detailPlace.photoUrl ? (
-                <img className="modal-hero-img" src={detailPlace.photoUrl} alt={detailPlace.name} />
-              ) : (
-                <div style={{ width:'100%',height:'100%',background:'linear-gradient(135deg,#0d2240,#071428)',display:'flex',alignItems:'center',justifyContent:'center' }}>
-                  <MapPin size={48} color="var(--text-muted)" />
-                </div>
-              )}
-              <div className="modal-hero-gradient" />
-              <div className="modal-hero-info">
-                <div style={{ display:'flex', gap:'8px', marginBottom:'10px', flexWrap:'wrap' }}>
-                  {detailPlace.isOpen === true  && <span className="dest-card-badge dest-card-badge-open">Open Now</span>}
-                  {detailPlace.isOpen === false && <span className="dest-card-badge dest-card-badge-closed">Closed</span>}
-                  <span style={{ padding:'5px 10px',borderRadius:'20px',fontSize:'0.72rem',fontWeight:700,background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.15)',color:'#fff' }}>
-                    {detailPlace.category}
-                  </span>
-                </div>
-                <h2 className="font-heading" style={{ fontSize:'clamp(1.6rem,4vw,2.2rem)',margin:'0 0 8px',lineHeight:1.1 }}>
-                  {detailPlace.name}
-                </h2>
-                <div style={{ display:'flex',gap:'16px',fontSize:'0.82rem',color:'rgba(255,255,255,0.6)',flexWrap:'wrap' }}>
-                  {detailPlace.rating && (
-                    <span style={{ display:'flex',alignItems:'center',gap:'4px',color:'var(--accent-gold)' }}>
-                      <Star size={13} fill="currentColor" /> {detailPlace.rating.toFixed(1)}
-                    </span>
-                  )}
-                  {detailPlace.distance > 0 && (
-                    <span style={{ display:'flex',alignItems:'center',gap:'4px' }}>
-                      <MapPin size={13} /> {detailPlace.distance} km
-                    </span>
-                  )}
-                  {detailPlace.travelMins > 0 && (
-                    <span style={{ display:'flex',alignItems:'center',gap:'4px' }}>
-                      <Car size={13} /> ~{detailPlace.travelMins} min
-                    </span>
-                  )}
-                </div>
-              </div>
-              <button className="modal-close-btn" onClick={closeDetail}>×</button>
-            </div>
-
-            {/* Body */}
-            <div className="modal-body">
-              {/* Details */}
-              <div className="modal-section">
-                <div className="modal-section-title">Details</div>
-                <div style={{ display:'flex',flexDirection:'column',gap:'10px' }}>
-                  {detailPlace.address && (
-                    <div style={{ display:'flex',gap:'10px',fontSize:'0.88rem',color:'var(--text-muted)',alignItems:'flex-start' }}>
-                      <MapPin size={15} style={{ flexShrink:0,marginTop:'2px' }} />
-                      <span>{detailPlace.address}</span>
-                    </div>
-                  )}
-                  {detailPlace.hoursDisplay && (
-                    <div style={{ display:'flex',gap:'10px',fontSize:'0.88rem',color:'var(--text-muted)',alignItems:'flex-start' }}>
-                      <Clock size={15} style={{ flexShrink:0,marginTop:'2px' }} />
-                      <span>{detailPlace.hoursDisplay}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* AI Review Summary */}
-              <div className="modal-section">
-                <div className="modal-section-title">
-                  <MessageSquare size={12} /> AI Review Summary
-                </div>
-                {aiSummary ? (
-                  <p style={{ fontSize:'0.9rem',color:'var(--accent-teal)',fontStyle:'italic',lineHeight:1.65,margin:0 }}>
-                    "{aiSummary}"
-                  </p>
-                ) : (
-                  <button
-                    onClick={() => generateReviewSummary(detailPlace)}
-                    disabled={aiSummaryLoading || !detailPlace.reviews || detailPlace.reviews.length === 0}
-                    style={{
-                      padding:'9px 20px',background:'linear-gradient(135deg,rgba(56,189,248,0.15),rgba(45,212,191,0.15))',
-                      border:'1px solid rgba(56,189,248,0.25)',borderRadius:'20px',
-                      color:'var(--accent-blue)',cursor:'pointer',fontSize:'0.82rem',fontWeight:700,width:'100%'
-                    }}
-                  >
-                    {aiSummaryLoading ? 'Generating…'
-                      : detailPlace.reviews && detailPlace.reviews.length > 0
-                        ? '✨ Generate AI Summary'
-                        : 'No reviews available'}
-                  </button>
-                )}
-              </div>
-
-              {/* Reviews */}
-              {detailPlace.reviews && detailPlace.reviews.length > 0 && (
-                <div className="modal-section">
-                  <div className="modal-section-title">Recent Reviews</div>
-                  <div style={{ display:'flex',flexDirection:'column',gap:'10px',maxHeight:'240px',overflowY:'auto',paddingRight:'4px' }}>
-                    {detailPlace.reviews.map((rev, idx) => (
-                      <div key={idx} className="review-card">
-                        <div style={{ display:'flex',justifyContent:'space-between',marginBottom:'6px' }}>
-                          <span style={{ fontWeight:700,fontSize:'0.82rem',color:'#e2e8f0' }}>
-                            {typeof rev === 'object' ? rev.author : 'Anonymous'}
-                          </span>
-                          <span style={{ fontSize:'0.72rem',color:'var(--text-muted)' }}>
-                            {typeof rev === 'object' ? rev.time : ''}
-                          </span>
-                        </div>
-                        <p style={{ margin:0,fontSize:'0.84rem',color:'var(--text-muted)',lineHeight:1.55 }}>
-                          {typeof rev === 'object' ? rev.text : rev}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <PlaceModal
+          place={detailPlace}
+          onClose={closeDetail}
+        />
       )}
 
       {/* Upcoming Tab */}

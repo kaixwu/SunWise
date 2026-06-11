@@ -13,6 +13,9 @@ export default function Admin() {
   
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   
   const [destForm, setDestForm] = useState({ name: "", lat: "", lon: "", type: "Outdoor", category: "Landmark" });
   const [destMsg, setDestMsg] = useState("");
@@ -24,40 +27,54 @@ export default function Admin() {
   }, [tab, role]);
 
   const fetchUsers = async () => {
+    setUsersLoading(true);
     try {
       const res = await axios.get(`/admin/users`);
       setUsers(res.data);
     } catch (err) {
       console.error(err);
+    } finally {
+      setUsersLoading(false);
     }
   };
 
   const fetchLogs = async () => {
+    setLogsLoading(true);
     try {
       const res = await axios.get(`/admin/logs`);
       setLogs(res.data);
     } catch (err) {
       console.error(err);
+    } finally {
+      setLogsLoading(false);
     }
   };
 
   const toggleBan = async (id) => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await axios.post(`/admin/users/${id}/ban`, {});
-      fetchUsers();
+      await fetchUsers();
     } catch (err) {
       alert(err.response?.data?.error || "Error banning user");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const addDestination = async () => {
+    if (submitting) return;
     setDestMsg("");
+    setSubmitting(true);
     try {
       await axios.post(`/admin/destinations`, destForm);
       setDestMsg("Destination added successfully!");
       setDestForm({ name: "", lat: "", lon: "", type: "Outdoor", category: "Landmark" });
     } catch (err) {
       setDestMsg("Error adding destination.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -74,7 +91,7 @@ export default function Admin() {
   }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "1200px", margin: "0 auto" }}>
+    <div style={{ padding: "40px", maxWidth: "1600px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
         <h1 className="font-heading" style={{ color: "var(--accent-blue)" }}>🛡️ IAS Command Center</h1>
         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
@@ -103,29 +120,46 @@ export default function Admin() {
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
-                <tr key={u.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                  <td style={{ padding: "12px" }}>{u.id}</td>
-                  <td style={{ padding: "12px" }}>{u.username}</td>
-                  <td style={{ padding: "12px" }}>{u.email}</td>
-                  <td style={{ padding: "12px" }}>{u.role}</td>
-                  <td style={{ padding: "12px" }}>
-                    <span style={{ color: u.is_banned ? "var(--danger)" : "var(--success)" }}>
-                      {u.is_banned ? "Banned" : "Active"}
-                    </span>
-                  </td>
-                  <td style={{ padding: "12px" }}>
-                    {u.role !== 'admin' && (
-                      <button 
-                        onClick={() => toggleBan(u.id)}
-                        style={{ padding: "6px 12px", background: u.is_banned ? "var(--success)" : "var(--danger)", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer" }}
-                      >
-                        {u.is_banned ? "Unban" : "Ban"}
-                      </button>
-                    )}
+              {usersLoading ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
+                      <span className="spinner"></span> Loading users...
+                    </div>
                   </td>
                 </tr>
-              ))}
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    No users found.
+                  </td>
+                </tr>
+              ) : (
+                users.map(u => (
+                  <tr key={u.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <td style={{ padding: "12px" }}>{u.id}</td>
+                    <td style={{ padding: "12px" }}>{u.username}</td>
+                    <td style={{ padding: "12px" }}>{u.email}</td>
+                    <td style={{ padding: "12px" }}>{u.role}</td>
+                    <td style={{ padding: "12px" }}>
+                      <span style={{ color: u.is_banned ? "var(--danger)" : "var(--success)" }}>
+                        {u.is_banned ? "Banned" : "Active"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px" }}>
+                      {u.role !== 'admin' && (
+                        <button 
+                          onClick={() => toggleBan(u.id)}
+                          disabled={submitting}
+                          style={{ padding: "6px 12px", background: u.is_banned ? "var(--success)" : "var(--danger)", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", opacity: submitting ? 0.6 : 1 }}
+                        >
+                          {u.is_banned ? "Unban" : "Ban"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -144,14 +178,30 @@ export default function Admin() {
               </tr>
             </thead>
             <tbody>
-              {logs.map(l => (
-                <tr key={l.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", color: l.status.includes("FAIL") ? "var(--danger)" : "var(--text-main)" }}>
-                  <td style={{ padding: "12px" }}>{l.time}</td>
-                  <td style={{ padding: "12px", fontFamily: "monospace" }}>{l.ip}</td>
-                  <td style={{ padding: "12px" }}>{l.email}</td>
-                  <td style={{ padding: "12px", fontWeight: "600" }}>{l.status}</td>
+              {logsLoading ? (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
+                      <span className="spinner"></span> Loading audit logs...
+                    </div>
+                  </td>
                 </tr>
-              ))}
+              ) : logs.length === 0 ? (
+                <tr>
+                  <td colSpan="4" style={{ textAlign: "center", padding: "32px", color: "var(--text-muted)" }}>
+                    No security logs available.
+                  </td>
+                </tr>
+              ) : (
+                logs.map(l => (
+                  <tr key={l.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)", color: l.status.includes("FAIL") ? "var(--danger)" : "var(--text-main)" }}>
+                    <td style={{ padding: "12px" }}>{l.time}</td>
+                    <td style={{ padding: "12px", fontFamily: "monospace" }}>{l.ip}</td>
+                    <td style={{ padding: "12px" }}>{l.email}</td>
+                    <td style={{ padding: "12px", fontWeight: "600" }}>{l.status}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -187,7 +237,9 @@ export default function Admin() {
             <option value="Beach">Beach</option>
           </select>
 
-          <button className="btn-primary" onClick={addDestination}>Save Destination to Database</button>
+          <button className="btn-primary" onClick={addDestination} disabled={submitting} style={{ opacity: submitting ? 0.6 : 1 }}>
+            {submitting ? "Saving..." : "Save Destination to Database"}
+          </button>
         </div>
       )}
     </div>

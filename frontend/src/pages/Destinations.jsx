@@ -367,7 +367,7 @@ function DestCard({ place, index, onOpen, onGoToday, onSchedule }) {
     >
       {/* Image */}
       {hasPhoto ? (
-        <img className="dest-card-img" src={place.photoUrl} alt={place.name} />
+        <img className="dest-card-img" src={place.photoUrl} alt={place.name} loading="lazy" />
       ) : (
         <div className="dest-card-img-placeholder">
           <MapPin size={40} />

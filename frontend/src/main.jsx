@@ -7,6 +7,7 @@ import axios from "axios"
 import "./index.css"
 
 
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || "";
 axios.defaults.withCredentials = true;
 axios.defaults.xsrfCookieName = 'csrf_access_token';
 axios.defaults.xsrfHeaderName = 'X-CSRF-TOKEN';

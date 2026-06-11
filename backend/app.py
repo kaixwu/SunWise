@@ -485,40 +485,7 @@ def hero_image():
     urls_only = [item["url"] for item in hero_items]
     return jsonify({"hero_items": hero_items, "urls": urls_only, "url": urls_only[0] if urls_only else None}), 200
 
-@app.route("/api/discover", methods=["GET"])
-def get_discover_photos():
-    unsplash_key = os.getenv("UNSPLASH_ACCESS_KEY")
-    if not unsplash_key:
-        return jsonify({"error": "No Unsplash key"}), 500
-        
-    location = request.args.get("location", "")
-    query_str = f"{location} tourist spot" if location else "tourist spot"
-        
-    url = "https://api.unsplash.com/photos/random"
-    headers = {"Authorization": f"Client-ID {unsplash_key}"}
-    params = {
-        "query": query_str,
-        "count": 20,
-        "orientation": "landscape"
-    }
-    
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json() # Random endpoint returns a list directly
-            photos = []
-            for item in data:
-                photos.append({
-                    "id": item["id"],
-                    "url": item["urls"]["regular"],
-                    "title": item.get("description") or item.get("alt_description") or "Philippines Destination",
-                    "author": item["user"]["name"]
-                })
-            return jsonify({"photos": photos}), 200
-        else:
-            return jsonify({"error": "Unsplash API error"}), resp.status_code
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/reverse-geocode", methods=["GET"])
 def reverse_geocode():

@@ -467,7 +467,7 @@ h1, h2, h3, .font-heading {
    HOME CONTENT SECTION (below hero)
 ══════════════════════════════════════════════ */
 .home-content-section {
-  max-width: 1280px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 48px 24px 48px;
   display: flex;
@@ -508,7 +508,7 @@ h1, h2, h3, .font-heading {
    DESTINATIONS – CARD GRID
 ══════════════════════════════════════════════ */
 .dest-page {
-  max-width: 1280px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 0 24px 60px;
 }

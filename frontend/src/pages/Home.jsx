@@ -486,7 +486,7 @@ export default function Home() {
 
       {/* ── AI Discovery Section ─────────────────────────────────────────────────── */}
       {!loading && !locationError && currentCoords && (
-        <div style={{ padding: "40px 20px" }}>
+        <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "40px 24px" }}>
           <div style={{ textAlign: "center", marginBottom: "32px" }}>
             <h2 className="font-heading" style={{ fontSize: "2.5rem", margin: "0 0 12px" }}>
               <span className="text-gradient-blue">AI Discovery</span>
@@ -545,7 +545,7 @@ export default function Home() {
                     >
                       <div style={{ width: "140px", background: "#111", position: "relative", flexShrink: 0 }}>
                         {p.photoUrl ? (
-                          <img src={p.photoUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <img src={p.photoUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
                         ) : (
                           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <MapPin size={32} color="rgba(255,255,255,0.2)" />
