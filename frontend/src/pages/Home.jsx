@@ -1,14 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { useData } from "../DataContext";
 import { useAuth } from "../AuthContext";
 import {
-  MapContainer, TileLayer, Marker, Popup, useMap, Polyline, Tooltip
+  MapContainer, TileLayer, Marker, Popup, useMap, Polyline
 } from 'react-leaflet';
 import {
   Search, MapPin, Navigation, AlertCircle,
   Wind, Droplets, Sunrise, ChevronDown, Zap, Map as MapIcon,
-  Sparkles, Compass, X
+  Sparkles, Compass, ChevronLeft, ChevronRight
 } from "lucide-react";
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -27,18 +27,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-const userLocationIcon = L.divIcon({
-  className: "custom-user-marker-teal",
-  html: `
-    <div class="user-marker-container">
-      <div class="user-marker-teal-pulse"></div>
-      <div class="user-marker-teal-dot"></div>
-    </div>
-  `,
-  iconSize: [30, 30],
-  iconAnchor: [15, 15]
-});
-
 const getLocalDateString = () => {
   const now = new Date();
   const y = now.getFullYear();
@@ -47,44 +35,20 @@ const getLocalDateString = () => {
   return `${y}-${m}-${d}`;
 };
 
-// Listening to zoom level changes and propagating to parent component
-function MapZoomListener({ onChange }) {
-  const map = useMap();
-  useEffect(() => {
-    const handleZoom = () => {
-      onChange(map.getZoom());
-    };
-    map.on('zoomend', handleZoom);
-    // Initial call
-    handleZoom();
-    return () => {
-      map.off('zoomend', handleZoom);
-    };
-  }, [map, onChange]);
-  return null;
-}
-
 function MapFlyTo({ center }) {
   const map = useMap();
-  const lat = center ? center[0] : null;
-  const lon = center ? center[1] : null;
-
-  useEffect(() => {
-    if (lat && lon) {
-      map.flyTo([lat, lon], 15, { duration: 1 });
-    }
-  }, [lat, lon, map]);
+  map.flyTo(center, 13, { duration: 1 });
   return null;
 }
 
 export default function Home() {
   const { token } = useAuth();
   const [selectedPlace, setSelectedPlace] = useState(null);
-  const [zoomLevel, setZoomLevel] = useState(15);
   const {
     city, weather, currentCoords, loading, locationError, setLocationError,
     fetcheverything, places, todayPlan, radius,
-    userCity, setUserCity, refreshItineraries, resetToGPS
+    userCity, setUserCity, refreshItineraries, resetToGPS,
+    suggestRefreshTrigger
   } = useData();
 
   const [manualCity, setManualCity] = useState("");
@@ -99,7 +63,7 @@ export default function Home() {
 
   // AI Discovery States
   const [activeTab, setActiveTab] = useState("suggest"); 
-  const [suggestCategory, setSuggestCategory] = useState("Cafe");
+  const [suggestCategory, setSuggestCategory] = useState("Any");
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [suggestResults, setSuggestResults] = useState(() => {
     const saved = localStorage.getItem("suggestResults");
@@ -109,6 +73,7 @@ export default function Home() {
       return [];
     }
   });
+  const [activeSuggestIndex, setActiveSuggestIndex] = useState(0);
   const [itinLoading, setItinLoading] = useState(false);
   const [itinResults, setItinResults] = useState(null);
 
@@ -151,7 +116,9 @@ export default function Home() {
     }
   };
 
-  const handleSuggestPlaces = async () => {
+  const lastFetchedKey = useRef("");
+
+  const handleSuggestPlaces = async (catToUse = suggestCategory) => {
     if (!currentCoords) return;
     setSuggestLoading(true);
     try {
@@ -165,7 +132,7 @@ export default function Home() {
       const res = await axios.post("/api/suggest-places", {
         lat: currentCoords.lat,
         lon: currentCoords.lon,
-        category: suggestCategory,
+        category: catToUse,
         radius: radius,
         weather: weatherData
       });
@@ -200,12 +167,43 @@ export default function Home() {
     }
   };
 
-  // Clear old AI Discovery results whenever location coordinates change
+  // Auto-fetch suggestions when coordinates, weather, category, or preferences change (safeguarded against duplicate calls)
   useEffect(() => {
-    setSuggestResults([]);
-    localStorage.removeItem("suggestResults");
-    setItinResults(null);
+    if (!currentCoords || !weather) return;
+    const fetchKey = `${currentCoords.lat},${currentCoords.lon},${suggestCategory},${suggestRefreshTrigger}`;
+    if (lastFetchedKey.current === fetchKey) return;
+    
+    lastFetchedKey.current = fetchKey;
+    handleSuggestPlaces(suggestCategory);
+  }, [currentCoords, weather, suggestCategory, suggestRefreshTrigger]);
+
+  const prevCoordsRef = useRef(null);
+
+  // Clear old AI Discovery results whenever location coordinates actually change to a new place
+  useEffect(() => {
+    if (!currentCoords) return;
+    
+    // Check if coordinates actually changed from a previously known coordinate
+    const hasPrevious = prevCoordsRef.current !== null;
+    const coordsChanged = hasPrevious && (
+      prevCoordsRef.current.lat !== currentCoords.lat || 
+      prevCoordsRef.current.lon !== currentCoords.lon
+    );
+    
+    if (coordsChanged) {
+      setSuggestResults([]);
+      localStorage.removeItem("suggestResults");
+      setItinResults(null);
+      setActiveSuggestIndex(0);
+      lastFetchedKey.current = ""; // Reset cache key to allow fresh load for new coordinates
+    }
+    
+    prevCoordsRef.current = currentCoords;
   }, [currentCoords]);
+
+  useEffect(() => {
+    setActiveSuggestIndex(0);
+  }, [suggestResults]);
 
   // Show real name only if user manually searched, else "Current Location"
   const displayCity = userCity ? userCity.toUpperCase() : (city ? "CURRENT LOCATION" : '');
@@ -263,8 +261,6 @@ export default function Home() {
 
     fetchHeroImages();
   }, [city, userCity, currentCoords]);
-
-
 
   // Auto slide effect
   useEffect(() => {
@@ -365,7 +361,7 @@ export default function Home() {
       {/* Top Left Controls: Change Area & Location Name */}
       {weather && currentCoords && !locationError && (
         <div style={{
-          position: "fixed",
+          position: "absolute",
           top: "1.5rem",
           left: "12rem",
           zIndex: 1000,
@@ -525,7 +521,7 @@ export default function Home() {
 
       {/* ── AI Discovery Section ─────────────────────────────────────────────────── */}
       {!loading && !locationError && currentCoords && (
-        <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "40px 24px" }}>
+        <div style={{ padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: "32px" }}>
             <h2 className="font-heading" style={{ fontSize: "2.5rem", margin: "0 0 12px" }}>
               <span className="text-gradient-blue">AI Discovery</span>
@@ -552,12 +548,12 @@ export default function Home() {
                         border: suggestCategory === cat ? "1px solid var(--accent-teal)" : "1px solid rgba(255,255,255,0.1)"
                       }}
                     >
-                      {cat}
+                      {cat === "Any" ? "For You" : cat}
                     </button>
                   ))}
                 </div>
                 <button 
-                  onClick={handleSuggestPlaces}
+                  onClick={() => handleSuggestPlaces(suggestCategory)}
                   disabled={suggestLoading}
                   style={{ 
                     marginTop: "12px", padding: "16px 24px", 
@@ -573,50 +569,314 @@ export default function Home() {
               </div>
 
               {/* Right Column: Results */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "16px", minWidth: 0 }}>
-                {suggestResults.length > 0 ? (
-                  suggestResults.map((p, i) => (
-                    <div 
-                      key={i} 
-                      className="glass-card shimmer-glass suggest-card" 
-                      style={{ overflow: "hidden", padding: 0, cursor: "pointer", transition: "transform 0.2s", display: "flex", flexDirection: "row", height: "135px" }}
-                      onClick={() => setSelectedPlace(p)}
-                    >
-                      <div style={{ width: "140px", background: "#111", position: "relative", flexShrink: 0 }}>
-                        {p.photoUrl ? (
-                          <img src={p.photoUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
-                        ) : (
-                          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <MapPin size={32} color="rgba(255,255,255,0.2)" />
-                          </div>
-                        )}
-                        <div style={{ position: "absolute", top: "8px", left: "8px", background: "rgba(0,0,0,0.6)", padding: "4px 8px", borderRadius: "8px", fontSize: "0.7rem", fontWeight: "700", color: "#fff", backdropFilter: "blur(4px)" }}>
-                          Top {i + 1}
+              <div style={{ display: "flex", flexDirection: "column", minWidth: 0, height: "100%", justifyContent: "center" }}>
+                <style>{`
+                  .slide-nav-btn:hover {
+                    background: var(--accent-teal) !important;
+                    border-color: var(--accent-teal) !important;
+                    box-shadow: 0 0 15px rgba(45, 212, 191, 0.4) !important;
+                    transform: translateY(-50%) scale(1.1) !important;
+                    color: #000 !important;
+                  }
+                  .suggest-slide-card:hover {
+                    transform: translateY(-2px);
+                    border-color: rgba(20, 184, 166, 0.35) !important;
+                    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4), 0 0 25px rgba(20, 184, 166, 0.08) !important;
+                  }
+                  .pref-dot:hover {
+                    background: rgba(20, 184, 166, 0.6) !important;
+                  }
+                  @keyframes skeleton-pulse {
+                    0% { opacity: 0.6; }
+                    50% { opacity: 0.35; }
+                    100% { opacity: 0.6; }
+                  }
+                  .skeleton-shimmer {
+                    animation: skeleton-pulse 1.5s infinite ease-in-out;
+                    background: rgba(255, 255, 255, 0.05);
+                  }
+                `}</style>
+
+                {suggestLoading ? (
+                  <div 
+                    className="glass-card suggest-slide-card" 
+                    style={{ 
+                      overflow: "hidden", 
+                      padding: 0, 
+                      display: "flex", 
+                      flexDirection: "row", 
+                      height: "360px",
+                      minHeight: "360px",
+                      borderRadius: "20px"
+                    }}
+                  >
+                    {/* Left Half: Image Skeleton */}
+                    <div className="skeleton-shimmer" style={{ width: "45%", height: "100%", position: "relative", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Compass className="skeleton-shimmer" size={48} color="rgba(255,255,255,0.15)" />
+                    </div>
+
+                    {/* Right Half: Details Skeleton */}
+                    <div style={{ padding: "28px 32px", flex: 1, display: "flex", flexDirection: "column", minWidth: 0, justifyContent: "space-between", height: "100%" }}>
+                      <div>
+                        {/* Category & Rating */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <div className="skeleton-shimmer" style={{ width: "80px", height: "24px", borderRadius: "6px" }} />
+                          <div className="skeleton-shimmer" style={{ width: "120px", height: "18px", borderRadius: "4px" }} />
                         </div>
-                      </div>
-                      <div style={{ padding: "12px 16px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
-                          <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: "700", color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</h3>
-                          <div style={{ fontSize: "0.7rem", color: "var(--accent-teal)", fontWeight: "700", textTransform: "uppercase", flexShrink: 0, marginLeft: "12px" }}>{p.category}</div>
-                        </div>
+
+                        {/* Title */}
+                        <div className="skeleton-shimmer" style={{ width: "80%", height: "28px", borderRadius: "8px", marginTop: "16px", marginBottom: "12px" }} />
                         
-                        <div style={{ 
-                          fontSize: "0.82rem", 
-                          color: "#cbd5e1", 
-                          lineHeight: "1.45",
-                          display: "-webkit-box",
-                          WebkitLineClamp: "3",
-                          WebkitBoxOrient: "vertical",
-                          overflow: "hidden"
-                        }}>
-                          <strong style={{ color: "var(--accent-teal)", marginRight: "6px" }}>Why Suggested?</strong>
-                          {p.whySuggested || (p.matchReasons && p.matchReasons.length > 0 ? p.matchReasons[0] : `A highly-rated ${p.category || 'destination'} nearby.`)}
-                        </div>
+                        {/* Address */}
+                        <div className="skeleton-shimmer" style={{ width: "60%", height: "18px", borderRadius: "4px", marginBottom: "20px" }} />
+                      </div>
+
+                      {/* Why Suggested */}
+                      <div style={{ 
+                        background: "rgba(255,255,255,0.01)", 
+                        border: "1px solid rgba(255,255,255,0.05)",
+                        borderRadius: "14px",
+                        padding: "16px 20px",
+                        marginTop: "auto"
+                      }}>
+                        <div className="skeleton-shimmer" style={{ width: "100px", height: "14px", borderRadius: "4px", marginBottom: "8px" }} />
+                        <div className="skeleton-shimmer" style={{ width: "100%", height: "16px", borderRadius: "4px", marginBottom: "6px" }} />
+                        <div className="skeleton-shimmer" style={{ width: "90%", height: "16px", borderRadius: "4px" }} />
                       </div>
                     </div>
-                  ))
+                  </div>
+                ) : suggestResults.length > 0 ? (
+                  (() => {
+                    const p = suggestResults[activeSuggestIndex];
+                    if (!p) return null;
+                    
+                    const nextSuggest = (e) => {
+                      e.stopPropagation();
+                      setActiveSuggestIndex((prev) => (prev + 1) % suggestResults.length);
+                    };
+                    
+                    const prevSuggest = (e) => {
+                      e.stopPropagation();
+                      setActiveSuggestIndex((prev) => (prev - 1 + suggestResults.length) % suggestResults.length);
+                    };
+
+                    return (
+                      <div style={{ position: "relative", width: "100%" }}>
+                        {/* Slide Card Container */}
+                        <div 
+                          className="glass-card shimmer-glass suggest-slide-card" 
+                          style={{ 
+                            overflow: "hidden", 
+                            padding: 0, 
+                            cursor: "pointer", 
+                            transition: "all 0.3s ease", 
+                            display: "flex", 
+                            flexDirection: "row", 
+                            height: "360px",
+                            minHeight: "360px",
+                            borderRadius: "20px"
+                          }}
+                          onClick={() => setSelectedPlace(p)}
+                        >
+                          {/* Left Half: Cover Image */}
+                          <div style={{ width: "45%", height: "100%", background: "#111", position: "relative", flexShrink: 0 }}>
+                            {p.photoUrl ? (
+                              <img src={p.photoUrl} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            ) : (
+                              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <MapPin size={48} color="rgba(255,255,255,0.2)" />
+                              </div>
+                            )}
+                            {/* Recommendation Rank Badge */}
+                            <div style={{ 
+                              position: "absolute", 
+                              top: "16px", 
+                              left: "16px", 
+                              background: "linear-gradient(135deg, var(--accent-blue), var(--accent-teal))",
+                              padding: "6px 14px", 
+                              borderRadius: "20px", 
+                              fontSize: "0.8rem", 
+                              fontWeight: "800", 
+                              color: "#fff", 
+                              boxShadow: "0 4px 15px rgba(20, 184, 166, 0.3)",
+                              backdropFilter: "blur(6px)"
+                            }}>
+                              TOP {activeSuggestIndex + 1}
+                            </div>
+                          </div>
+
+                          {/* Right Half: Details */}
+                          <div style={{ padding: "28px 32px", flex: 1, display: "flex", flexDirection: "column", minWidth: 0, justifyContent: "space-between", height: "100%" }}>
+                            <div>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                                <span style={{ 
+                                  fontSize: "0.75rem", 
+                                  color: "var(--accent-teal)", 
+                                  fontWeight: "800", 
+                                  textTransform: "uppercase", 
+                                  letterSpacing: "1px",
+                                  background: "rgba(20, 184, 166, 0.1)",
+                                  padding: "4px 10px",
+                                  borderRadius: "6px"
+                                }}>
+                                  {p.category}
+                                </span>
+                                {p.rating && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.85rem", color: "#f8fafc" }}>
+                                    <span style={{ color: "var(--accent-gold)", fontSize: "1.1rem" }}>★</span>
+                                    <strong>{p.rating}</strong>
+                                    <span style={{ color: "var(--text-muted)" }}>({p.ratingCount} reviews)</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <h3 style={{ 
+                                margin: "12px 0 8px", 
+                                fontSize: "1.5rem", 
+                                fontWeight: "800", 
+                                color: "#fff", 
+                                lineHeight: "1.3",
+                                letterSpacing: "-0.5px",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis"
+                              }}>
+                                {p.name}
+                              </h3>
+                              
+                              <p style={{ 
+                                margin: "0 0 20px", 
+                                fontSize: "0.88rem", 
+                                color: "var(--text-muted)", 
+                                display: "flex", 
+                                alignItems: "center", 
+                                gap: "6px",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis"
+                              }}>
+                                <MapPin size={14} color="var(--accent-teal)" />
+                                {p.address}
+                              </p>
+                            </div>
+
+                            {/* Why Suggested Container */}
+                            <div style={{ 
+                              background: "rgba(255,255,255,0.01)", 
+                              border: "1px solid rgba(255,255,255,0.05)",
+                              borderRadius: "14px",
+                              padding: "16px 20px",
+                              marginTop: "auto"
+                            }}>
+                              <div style={{ 
+                                fontSize: "0.78rem", 
+                                color: "var(--accent-teal)", 
+                                fontWeight: "800", 
+                                textTransform: "uppercase", 
+                                letterSpacing: "0.5px",
+                                marginBottom: "4px"
+                              }}>
+                                Why Suggested?
+                              </div>
+                              <p style={{ 
+                                margin: 0, 
+                                fontSize: "0.9rem", 
+                                color: "#cbd5e1", 
+                                lineHeight: "1.5",
+                                display: "-webkit-box",
+                                WebkitLineClamp: 7,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis"
+                              }}>
+                                {p.whySuggested || (p.matchReasons && p.matchReasons.length > 0 ? p.matchReasons[0] : `A highly-rated ${p.category || 'destination'} nearby.`)}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Navigation Overlay Buttons */}
+                        {suggestResults.length > 1 && (
+                          <>
+                            {/* Prev button */}
+                            <button 
+                              onClick={prevSuggest}
+                              className="slide-nav-btn"
+                              style={{ 
+                                position: "absolute",
+                                left: "-22px",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                width: "44px",
+                                height: "44px",
+                                borderRadius: "50%",
+                                background: "rgba(20, 25, 45, 0.9)",
+                                border: "1px solid rgba(255, 255, 255, 0.12)",
+                                color: "#fff",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                transition: "all 0.2s ease",
+                                boxShadow: "0 4px 15px rgba(0,0,0,0.5)",
+                                zIndex: 10
+                              }}
+                            >
+                              <ChevronLeft size={22} />
+                            </button>
+
+                            {/* Next button */}
+                            <button 
+                              onClick={nextSuggest}
+                              className="slide-nav-btn"
+                              style={{ 
+                                position: "absolute",
+                                right: "-22px",
+                                top: "50%",
+                                transform: "translateY(-50%)",
+                                width: "44px",
+                                height: "44px",
+                                borderRadius: "50%",
+                                background: "rgba(20, 25, 45, 0.9)",
+                                border: "1px solid rgba(255, 255, 255, 0.12)",
+                                color: "#fff",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                transition: "all 0.2s ease",
+                                boxShadow: "0 4px 15px rgba(0,0,0,0.5)",
+                                zIndex: 10
+                              }}
+                            >
+                              <ChevronRight size={22} />
+                            </button>
+
+                            {/* Dot Indicators */}
+                            <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "16px" }}>
+                              {suggestResults.map((_, dotIdx) => (
+                                <div 
+                                  key={dotIdx}
+                                  onClick={(e) => { e.stopPropagation(); setActiveSuggestIndex(dotIdx); }}
+                                  className="pref-dot"
+                                  style={{
+                                    width: activeSuggestIndex === dotIdx ? "20px" : "8px",
+                                    height: "8px",
+                                    borderRadius: "4px",
+                                    background: activeSuggestIndex === dotIdx ? "var(--accent-teal)" : "rgba(255,255,255,0.2)",
+                                    cursor: "pointer",
+                                    transition: "all 0.25s ease"
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : (
-                  <div style={{ textAlign: "center", padding: "48px 20px", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "16px", background: "rgba(0,0,0,0.2)", height: "100%", minHeight: "300px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
+                  <div style={{ textAlign: "center", padding: "48px 20px", border: "1px dashed rgba(255,255,255,0.1)", borderRadius: "16px", background: "rgba(0,0,0,0.2)", height: "360px", minHeight: "360px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" }}>
                     <Compass size={48} color="var(--accent-blue)" style={{ opacity: 0.5, marginBottom: "16px" }} />
                     <h3 style={{ margin: "0 0 8px", color: "#e2e8f0", fontSize: "1.2rem" }}>Ready to Explore?</h3>
                     <p style={{ color: "var(--text-muted)", maxWidth: "400px", margin: "0 auto", fontSize: "0.95rem" }}>
@@ -722,10 +982,9 @@ export default function Home() {
           <div className="home-map-container map-breathe">
             <MapContainer
               center={[currentCoords.lat, currentCoords.lon]}
-              zoom={15}
+              zoom={13}
               style={{ height: '100%', width: '100%' }}
             >
-              <MapZoomListener onChange={setZoomLevel} />
               <MapFlyTo center={[currentCoords.lat, currentCoords.lon]} />
               <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -736,18 +995,8 @@ export default function Home() {
                 attribution='&copy; <a href="https://www.tomtom.com/">TomTom</a>'
                 opacity={0.7}
               />
-              <Marker position={[currentCoords.lat, currentCoords.lon]} icon={userLocationIcon}>
-                <Tooltip 
-                  permanent 
-                  direction="top" 
-                  offset={[0, -10]}
-                  className="custom-map-tooltip"
-                  style={{
-                    fontSize: `${Math.max(8, Math.min(15, zoomLevel * 0.8))}px`
-                  }}
-                >
-                  You are here
-                </Tooltip>
+              <Marker position={[currentCoords.lat, currentCoords.lon]}>
+                <Popup><strong>You are here</strong></Popup>
               </Marker>
               {(routePolyline.length > 0 ? [routeDest] : places.slice(0, 10)).map((p, i) =>
                 p && (
@@ -825,8 +1074,8 @@ export default function Home() {
         <PlaceModal 
           place={selectedPlace} 
           onClose={() => setSelectedPlace(null)} 
-          onGoToday={() => { setSelectedPlace(null); openModal(selectedPlace, 'today'); }}
-          onSchedule={() => { setSelectedPlace(null); openModal(selectedPlace, 'schedule'); }}
+          onGoToday={() => { openModal(selectedPlace, 'today'); }}
+          onSchedule={() => { openModal(selectedPlace, 'schedule'); }}
         />
       )}
 

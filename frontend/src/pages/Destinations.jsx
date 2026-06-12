@@ -169,7 +169,7 @@ export default function Destinations() {
           <div className="filter-scroll-container">
             {["Any", "Cafe", "Restaurant", "Museum", "Park", "Shopping", "Nature", "Entertainment", "Heritage"].map(p => (
               <button key={p} className={`glass-pill ${prefType === p ? "active" : ""}`} onClick={() => setPrefType(p)}>
-                {p}
+                {p === "Any" ? "For You" : p}
               </button>
             ))}
           </div>

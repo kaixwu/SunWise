@@ -1,28 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { LogOut, User } from "lucide-react";
+import { LogOut, User, Settings } from "lucide-react";
 import gsap from "gsap";
 import SplitType from "split-type";
 
 export default function Navbar() {
-  const { username, role, logout } = useAuth();
+  const { username, role, logout, setShowPreferences } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const isAnimating = useRef(false);
   const tl = useRef(null);
   const splitLinks = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
 
+
+
+  // Track scroll position for glassmorphic effect
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 40);
-    };
-    window.addEventListener("scroll", handleScroll);
+    const handleScroll = () => setIsScrolled(window.scrollY > 40);
+    // Read current position immediately on mount / page change
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [location.pathname]);
   
   const navItems = [
     { name: "Home", path: "/home" },
@@ -94,7 +97,6 @@ export default function Navbar() {
           tl.current.play();
           
           const linkBlocks = [
-              ".nav-socials .line, .nav-legal .line",
               ".nav-primary-links .line",
               ".nav-secondary-links .line"
           ];
@@ -136,16 +138,18 @@ export default function Navbar() {
       }, 800);
   };
 
+  const handleEditPreferences = (e) => {
+      e.preventDefault();
+      toggleMenu();
+      setTimeout(() => {
+          setShowPreferences(true);
+      }, 800);
+  };
+
   return (
     <>
       <nav 
-        className={`nav-wrapper ${scrolled ? "scrolled" : ""} ${location.pathname !== "/home" ? "not-home" : ""}`} 
-        style={{ 
-          position: location.pathname === "/home" ? "fixed" : "sticky", 
-          top: 0, 
-          zIndex: 2001,
-          marginBottom: location.pathname === "/home" ? "0" : "24px" 
-        }}
+        className={`nav-wrapper${isScrolled ? " scrolled" : ""}`}
       >
         <div className="nav-logo">
           <Link to="/home" style={{ textDecoration: "none" }} onClick={(e) => {
@@ -172,18 +176,6 @@ export default function Navbar() {
           
           <div className="nav-items-container">
               <div className="nav-items-col">
-                  <div className="nav-socials">
-                      <a href="#" onClick={e=>e.preventDefault()}>Instagram</a>
-                      <a href="#" onClick={e=>e.preventDefault()}>X</a>
-                      <a href="#" onClick={e=>e.preventDefault()}>Facebook</a>
-                  </div>
-                  <div className="nav-legal">
-                      <a href="#" onClick={e=>e.preventDefault()}>Privacy Policy</a>
-                      <a href="#" onClick={e=>e.preventDefault()}>Terms of Service</a>
-                  </div>
-              </div>
-              
-              <div className="nav-items-col">
                   <div className="nav-primary-links">
                       {navItems.map(item => (
                           <a 
@@ -196,9 +188,15 @@ export default function Navbar() {
                           </a>
                       ))}
                   </div>
+              </div>
+              
+              <div className="nav-items-col">
                   <div className="nav-secondary-links">
                       <a href="#" onClick={e=>e.preventDefault()} style={{ display: "flex", alignItems: "center", gap: "8px", pointerEvents: "none" }}>
                           <User size={20} /> {username}
+                      </a>
+                      <a href="#" onClick={handleEditPreferences} style={{ color: "var(--accent-teal)", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <Settings size={20} /> Edit Preferences
                       </a>
                       <a href="#" onClick={handleLogout} style={{ color: "var(--danger)", display: "flex", alignItems: "center", gap: "8px" }}>
                           <LogOut size={20} /> Log Out

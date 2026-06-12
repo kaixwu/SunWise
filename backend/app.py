@@ -20,6 +20,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from google import genai as google_genai
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv(override=True)
 print(f"Loaded Gemini Key: {os.getenv('GEMINI_API_KEY', '')[:5]}...")
@@ -94,6 +95,146 @@ def generate_gemini_content(contents):
             
     raise last_err
 
+def fetch_nearby_directory_stores(lat, lon):
+    """Fetches up to 10 nearby stores/restaurants (within 150m) to serve as a mall/venue directory."""
+    if not google_places_key or lat is None or lon is None:
+        return []
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": google_places_key,
+        "X-Goog-FieldMask": "places.displayName,places.primaryType"
+    }
+    body = {
+        "includedTypes": ["restaurant", "cafe", "store", "clothing_store", "shoe_store", "electronics_store"],
+        "maxResultCount": 10,
+        "locationRestriction": {
+            "circle": {
+                "center": {"latitude": float(lat), "longitude": float(lon)},
+                "radius": 150.0
+            }
+        }
+    }
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=5)
+        if resp.status_code == 200:
+            stores = []
+            for p in resp.json().get("places", []):
+                name = p.get("displayName", {}).get("text", "")
+                ptype = p.get("primaryType", "Store").replace("_", " ").title()
+                if name:
+                    stores.append(f"{name} ({ptype})")
+            return stores
+    except Exception as e:
+        print(f"[Directory Search Helper] Error: {e}")
+    return []
+
+def is_place_complex(p):
+    """Determines if a place is a mall, shopping center, plaza, department store, or large complex."""
+    if not p:
+        return False
+    name = (p.get("name") or "").lower()
+    primary_type = (p.get("primaryType") or "").lower()
+    types = [t.lower() for t in p.get("types", [])]
+    
+    # Check primary type or types list for mall/shopping/grocery complex indicators
+    complex_types = {
+        "shopping_mall", "shopping_center", "department_store", 
+        "supermarket", "grocery_store", "market", "wholesaler", 
+        "plaza", "town_square", "convention_center"
+    }
+    
+    if primary_type in complex_types:
+        return True
+        
+    if any(t in complex_types for t in types):
+        return True
+        
+    # Name keywords representing complexes
+    complex_name_keywords = [
+        "mall", "plaza", "center", "centre", "square", "hub", "town center", 
+        "town centre", "gotesco", "robinsons", "sm ", "ayala", "megamall", "galleria", "cherry"
+    ]
+    
+    for kw in complex_name_keywords:
+        if kw == "sm ":
+            if name.startswith("sm ") or " sm " in name:
+                return True
+        else:
+            # Word boundary matching so "small" doesn't trigger "mall"
+            pattern = rf"\b{re.escape(kw)}\b"
+            if re.search(pattern, name):
+                return True
+                
+    return False
+
+def get_standalone_budget(p):
+    """
+    Returns the budget classification for a standalone venue: 'budget', 'moderate', or 'luxury'.
+    Uses explicit price level if available, otherwise estimates based on name keywords and reviews.
+    """
+    # 1. Check if priceLevel is specified
+    price_level = p.get("priceLevel")
+    if price_level is not None:
+        if price_level <= 1:
+            return "budget"
+        elif price_level == 2:
+            return "moderate"
+        else:
+            return "luxury"
+            
+    # 2. Otherwise estimate it
+    name = (p.get("name") or "").lower()
+    category = p.get("category", "")
+    primary_type = (p.get("primaryType") or "").lower()
+    types = [t.lower() for t in p.get("types", [])]
+    
+    # Public nature/parks
+    free_keywords = ["park", "nature", "forest", "hiking", "lake", "plaza", "public", "church", "cathedral", "shrine", "temple", "monument"]
+    if category in ["Park", "Nature"] or any(kw in name for kw in free_keywords) or any(kw in primary_type for kw in free_keywords):
+        return "budget"
+        
+    # Cheap chains/categories
+    budget_chains = ["jollibee", "mcdonald", "kfc", "mang inasal", "chowking", "greenwich", "shakey", "pizza hut", "red ribbon", "goldilocks", "dunkin", "mr. donut", "burger king", "potato corner", "canteen", "carinderia", "street food", "stalls", "bakery", "minimart", "7-eleven", "alfamart", "convenience store", "food court"]
+    if any(chain in name for chain in budget_chains) or "fast_food" in types or "fast food" in primary_type:
+        return "budget"
+        
+    # Luxury chains/keywords
+    luxury_brands = ["starbucks", "coffee project", "bistro", "steakhouse", "fine dining", "wine", "spa", "salon", "lounge", "resort", "hotel", "boutique", "expensive", "premium", "luxury", "bar & grill", "bar and grill", "seafood rest", "japanese restaurant", "korean bbq", "authentic", "sushi bar", "grill & bar", "aegyo", "jess & pat", "jess and pat"]
+    if any(brand in name for brand in luxury_brands):
+        return "luxury"
+        
+    # Scan reviews for budget vs luxury indicators
+    reviews_list = p.get("reviews", [])
+    review_texts = []
+    for r in reviews_list:
+        if isinstance(r, dict):
+            text = r.get("text", "")
+        else:
+            text = str(r)
+        if text:
+            review_texts.append(text.lower())
+            
+    budget_count = 0
+    luxury_count = 0
+    
+    budget_review_keywords = ["cheap", "affordable", "budget", "sulit", "mura", "low price", "student friendly", "reasonable price", "worth the money", "unli", "unlimited", "tipid", "reasonable"]
+    luxury_review_keywords = ["expensive", "luxury", "premium", "pricey", "mahal", "fine dining", "upscale", "high-end", "fancy", "overpriced", "exclusive", "premium quality", "service charge", "high price"]
+    
+    for text in review_texts:
+        budget_count += sum(text.count(kw) for kw in budget_review_keywords)
+        luxury_count += sum(text.count(kw) for kw in luxury_review_keywords)
+        
+    if budget_count > luxury_count:
+        return "budget"
+    elif luxury_count > budget_count:
+        return "luxury"
+        
+    # Default fallback
+    if category in ["Cafe", "Restaurant"]:
+        return "moderate"
+    return "budget"
+
 # ── MODELS (unchanged) ──────────────────────────────────────────────────────
 class User(db.Model):
     __tablename__ = 'users'
@@ -110,6 +251,10 @@ class Preference(db.Model):
     user_id = db.Column(db.Integer, primary_key=True)
     trip_type = db.Column(db.String(50), default='any')
     max_distance = db.Column(db.Integer, default=10)
+    preferred_activities = db.Column(db.Text, default='')  # comma-separated
+    budget_level = db.Column(db.String(20), default='moderate')  # budget, moderate, luxury
+    travel_pace = db.Column(db.String(20), default='moderate')  # relaxed, moderate, active
+    vibe_description = db.Column(db.Text, default='')  # free-text mood/vibe saved by user
 
 class SecurityLog(db.Model):
     __tablename__ = 'security_logs'
@@ -145,6 +290,27 @@ class Itinerary(db.Model):
 with app.app_context():
     try:
         db.create_all()
+        
+        # Safely alter preferences table to add new columns if they don't exist
+        try:
+            with db.engine.begin() as conn:
+                inspector = sqlalchemy.inspect(db.engine)
+                cols = [c['name'] for c in inspector.get_columns('preferences')]
+                if 'preferred_activities' not in cols:
+                    print("Adding preferred_activities to preferences table...")
+                    conn.execute(sqlalchemy.text("ALTER TABLE preferences ADD COLUMN preferred_activities TEXT DEFAULT ''"))
+                if 'budget_level' not in cols:
+                    print("Adding budget_level to preferences table...")
+                    conn.execute(sqlalchemy.text("ALTER TABLE preferences ADD COLUMN budget_level VARCHAR(20) DEFAULT 'moderate'"))
+                if 'travel_pace' not in cols:
+                    print("Adding travel_pace to preferences table...")
+                    conn.execute(sqlalchemy.text("ALTER TABLE preferences ADD COLUMN travel_pace VARCHAR(20) DEFAULT 'moderate'"))
+                if 'vibe_description' not in cols:
+                    print("Adding vibe_description to preferences table...")
+                    conn.execute(sqlalchemy.text("ALTER TABLE preferences ADD COLUMN vibe_description TEXT DEFAULT ''"))
+        except Exception as migration_error:
+            print(f"Migration error: {migration_error}")
+                
         if not User.query.filter_by(role='admin').first():
             hashed = bcrypt.hashpw("Admin@123".encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
             admin = User(username='Admin', email='admin@sunwise.com', password=hashed, role='admin')
@@ -177,6 +343,19 @@ def haversine(lat1, lon1, lat2, lon2):
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
     return R * 2 * math.asin(math.sqrt(a))
+
+def map_price_level(level_str):
+    if not level_str:
+        return None
+    mapping = {
+        "PRICE_LEVEL_FREE": 0,
+        "PRICE_LEVEL_INEXPENSIVE": 1,
+        "PRICE_LEVEL_MODERATE": 2,
+        "PRICE_LEVEL_EXPENSIVE": 3,
+        "PRICE_LEVEL_VERY_EXPENSIVE": 4
+    }
+    return mapping.get(level_str)
+
 def log_security_event(ip, email, status):
     log = SecurityLog(ip_address=ip, email_attempted=email, status=status)
     db.session.add(log)
@@ -553,7 +732,7 @@ def fetch_google_places_text_search(lat, lon, radius, keyword):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": google_places_key,
-        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.currentOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews"
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.currentOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews,places.priceLevel"
     }
     body = {
         "textQuery": keyword,
@@ -646,7 +825,10 @@ def fetch_google_places_text_search(lat, lon, radius, keyword):
                 "reviews": reviews_list,
                 "travelMins": 0,
                 "score": 0,
-                "matchReasons": []
+                "matchReasons": [],
+                "priceLevel": map_price_level(place.get("priceLevel")),
+                "primaryType": place.get("primaryType"),
+                "types": place.get("types", [])
             })
         print(f"[TextSearch] '{keyword}' near ({lat},{lon}) -> {len(results)} results")
         return results
@@ -680,7 +862,7 @@ def fetch_google_places(lat, lon, radius, category="Any", keyword=None):
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": google_places_key,
-        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.currentOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews"
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location,places.primaryType,places.types,places.regularOpeningHours,places.currentOpeningHours,places.rating,places.userRatingCount,places.photos,places.reviews,places.priceLevel"
     }
     all_places = []
     from concurrent.futures import ThreadPoolExecutor
@@ -776,7 +958,10 @@ def fetch_google_places(lat, lon, radius, category="Any", keyword=None):
                 "google_place_id": place.get("id"),
                 "travelMins": 0,
                 "score": 0,
-                "matchReasons": []
+                "matchReasons": [],
+                "priceLevel": map_price_level(place.get("priceLevel")),
+                "primaryType": place.get("primaryType"),
+                "types": place.get("types", [])
             })
     # Deduplicate
     # Deduplicate strictly by name or place ID
@@ -817,8 +1002,28 @@ def get_tomtom_travel_times(origin_lat, origin_lon, destinations):
         for d in destinations:
             d["travelMins"] = round(d["distance"] * 4)
 
-# ── LOCAL SCORING (unchanged) ───────────────────────────────────────────────
-def calculate_local_scores(places, weather, preferred_category, env_type):
+# Helper to check if a place matches user preferred activities
+def matches_user_preference(place, preferred_activities):
+    category = place.get("category", "")
+    p_type = place.get("type", "Indoor") # "Outdoor" or "Indoor"
+    
+    for act in preferred_activities:
+        act_clean = act.lower().strip()
+        if act_clean == "food" and category in ["Restaurant", "Cafe"]:
+            return "Food & Dining"
+        if act_clean == "shopping" and category == "Shopping":
+            return "Shopping"
+        if act_clean == "nature" and (category == "Park" or (category == "Attraction" and p_type == "Outdoor")):
+            return "Outdoor & Nature"
+        if act_clean == "history" and category == "Museum":
+            return "Historical & Cultural"
+        if act_clean == "adventure" and category == "Attraction" and p_type != "Outdoor":
+            return "Theme Parks & Adventure"
+            
+    return None
+
+# ── LOCAL SCORING (updated with personalized boosts) ────────────────────────
+def calculate_local_scores(places, weather, preferred_category, env_type, user_pref=None):
     if not places:
         return []
     max_dist = max(p["distance"] for p in places)
@@ -874,11 +1079,77 @@ def calculate_local_scores(places, weather, preferred_category, env_type):
         if weather_score >= 0.8: reasons.append("Ideal for Current Weather")
         if cat_score == 1.0 and preferred_category != "Any": reasons.append("Matches Category Preference")
 
-        p["score"] = round(total)
+        # Check personalization match if user preferences exist
+        matched_interest = None
+        if user_pref and user_pref.preferred_activities:
+            pref_list = [a.strip() for a in user_pref.preferred_activities.split(",") if a.strip()]
+            matched_interest = matches_user_preference(p, pref_list)
+            
+        # If matches user preferred activities, apply +15% score boost
+        if matched_interest:
+            total += 15
+            reasons.append(f"Matches interest: {matched_interest}")
+            
+        # Budget Match / Filter
+        if user_pref:
+            budget_lvl = user_pref.budget_level.lower().strip()
+            
+            if is_place_complex(p):
+                # For complex places (malls, plazas), they host various venues of different budgets.
+                # Do not penalize them, but give boosts/bonuses if appropriate.
+                if budget_lvl == "luxury":
+                    total += 10
+                    reasons.append("Complex venue (suitable for premium experiences)")
+                elif budget_lvl == "budget":
+                    total += 10
+                    reasons.append("Complex venue (contains budget-friendly choices)")
+                else:
+                    total += 10
+                    reasons.append("Complex venue (contains moderate options)")
+            else:
+                # Standalone venues: Strictly classify and enforce their budget level
+                determined_lvl = get_standalone_budget(p)
+                
+                if budget_lvl == "luxury":
+                    if determined_lvl == "luxury":
+                        total += 25
+                        reasons.append("Matches budget: Premium/Luxury venue")
+                    elif determined_lvl == "budget":
+                        total -= 50  # Enforce strict penalty for budget-level standalone places
+                        reasons.append("Low suitability: Budget/Inexpensive venue (Luxury preference)")
+                    else:
+                        # Moderate: neutral or slight penalty
+                        total -= 15
+                        reasons.append("Low suitability: Moderate venue (Luxury preference)")
+                        
+                elif budget_lvl == "budget":
+                    if determined_lvl == "budget":
+                        total += 25
+                        reasons.append("Matches budget: Budget-friendly")
+                    elif determined_lvl == "luxury":
+                        total -= 50  # Enforce strict penalty for expensive standalone places
+                        reasons.append("Low suitability: Premium/Luxury venue (Budget preference)")
+                    else:
+                        # Moderate: neutral or slight penalty
+                        total -= 15
+                        reasons.append("Low suitability: Moderate venue (Budget preference)")
+                        
+                else:  # Moderate
+                    if determined_lvl == "moderate":
+                        total += 25
+                        reasons.append("Matches budget: Moderate")
+                    elif determined_lvl == "budget":
+                        total += 10
+                        reasons.append("Matches budget: Budget-friendly/Moderate compatibility")
+                    else:  # luxury
+                        total -= 20
+                        reasons.append("Low suitability: Premium/Luxury venue (Moderate preference)")
+
+        p["score"] = min(100, round(total))
         p["matchReasons"] = reasons
     return places
 
-def generate_fallback_reason(place, category, weather=None, rank=None):
+def generate_fallback_reason(place, category, weather=None, rank=None, budget_lvl="moderate"):
     name = place.get("name")
     rating = place.get("rating")
     rating_count = place.get("ratingCount") or place.get("userRatingCount") or 0
@@ -955,14 +1226,58 @@ def generate_fallback_reason(place, category, weather=None, rank=None):
     elif rank == 3:
         rank_prefix = "Ranked as your Top 3 option, this is another highly rated alternative to consider. "
 
+    # 5. Directory Recommendation Suffix
+    dir_stores = place.get("directory", [])
+    dir_desc = ""
+    if dir_stores:
+        budget_keywords = ["food court", "market", "supermarket", "puregold", "savemore", "hypermarket", "stalls", "bakery", "minimart", "convenience store", "alfamart", "7-eleven", "jollibee", "mcdonald", "kfc", "mang inasal", "chowking", "greenwich", "red ribbon", "goldilocks"]
+        luxury_keywords = ["cafe", "restaurant", "starbucks", "boutique", "salon", "spa", "coffee", "bar", "luxury", "bistro", "premium", "dining", "seafood", "grill", "uniqlo", "h&m", "nike", "adidas", "cinema", "buffet", "coffee project", "zara", "lacoste", "bose"]
+        
+        selected = []
+        if budget_lvl == "budget":
+            for s in dir_stores:
+                s_lower = s.lower()
+                if any(kw in s_lower for kw in budget_keywords):
+                    selected.append(s)
+                if len(selected) >= 2:
+                    break
+        elif budget_lvl == "luxury":
+            for s in dir_stores:
+                s_lower = s.lower()
+                if any(kw in s_lower for kw in luxury_keywords) and not any(kw in s_lower for kw in ["jollibee", "mcdonald", "kfc", "mang inasal", "chowking"]):
+                    selected.append(s)
+                if len(selected) >= 2:
+                    break
+                    
+        if len(selected) < 2:
+            for s in dir_stores:
+                if s not in selected:
+                    selected.append(s)
+                if len(selected) >= 2:
+                    break
+                    
+        cleaned_selected = [s.split(" (")[0] for s in selected]
+            
+        if len(cleaned_selected) == 1:
+            dir_desc = f" While visiting, you can check out {cleaned_selected[0]}."
+        elif len(cleaned_selected) >= 2:
+            if budget_lvl == "budget":
+                dir_desc = f" For affordable options, you can check out {cleaned_selected[0]} or {cleaned_selected[1]} inside."
+            elif budget_lvl == "luxury":
+                dir_desc = f" For premium experiences, you can check out {cleaned_selected[0]} or {cleaned_selected[1]} inside."
+            else:
+                dir_desc = f" You can check out spots like {cleaned_selected[0]} or {cleaned_selected[1]} inside."
+
     # Combine into a cohesive but very simple, defensive paragraph
-    full_reason = f"{rank_prefix}{weather_desc} {dist_desc} {rating_desc}"
+    full_reason = f"{rank_prefix}{weather_desc} {dist_desc} {rating_desc}{dir_desc}"
     return full_reason
 
-# ── PLACES ENDPOINT (unchanged) ─────────────────────────────────────────────
+# ── PLACES ENDPOINT (updated with preferences) ──────────────────────────────
 @app.route("/api/places", methods=["POST"])
 @jwt_required()
 def get_places():
+    user_id = get_jwt_identity()
+    user_pref = Preference.query.filter_by(user_id=user_id).first() if user_id else None
     data = request.get_json()
     lat = data.get("lat")
     lon = data.get("lon")
@@ -976,7 +1291,7 @@ def get_places():
     if not places:
         return jsonify({"places": []}), 200
     get_tomtom_travel_times(lat, lon, places)
-    scored = calculate_local_scores(places, weather, category, env_type)
+    scored = calculate_local_scores(places, weather, category, env_type, user_pref)
     scored = [p for p in scored if p.get("score", 0) > 0]
     scored.sort(key=lambda x: x["score"], reverse=True)
     return jsonify({"places": scored[:20]}), 200
@@ -985,6 +1300,17 @@ def get_places():
 @app.route("/api/generate-itinerary", methods=["POST"])
 @jwt_required()
 def generate_itinerary():
+    user_id = get_jwt_identity()
+    user_pref = Preference.query.filter_by(user_id=user_id).first() if user_id else None
+    
+    pace_instruction = ""
+    if user_pref:
+        pace = user_pref.travel_pace.lower().strip()
+        if pace == "relaxed":
+            pace_instruction = "- The user prefers a RELAXED, slow travel pace. Ensure longer durations at each place (e.g. 2+ hours for museums/malls) and add breathing room between stops."
+        elif pace == "active":
+            pace_instruction = "- The user prefers an ACTIVE, fast-paced trip. Keep durations slightly shorter (e.g. 1-1.5 hours maximum) so they can fit in more stops without rushing."
+
     data = request.get_json()
     places = data.get("places", [])
     weather = data.get("weather", {})
@@ -1020,6 +1346,7 @@ Consider:
 - What activities to do at each place (briefly)
 - Realistic durations (e.g., 1-2 hours for a restaurant, 1-3 hours for a museum)
 - The user must be able to visit all stops before they close
+{pace_instruction}
 
 Return ONLY a valid JSON object with the following structure:
 {{
@@ -1246,6 +1573,55 @@ def place_summary():
         print(f"Gemini Summary Error: {e}")
         return jsonify({"summary": "Could not generate AI summary at this time."}), 200
 
+@app.route("/api/preferences", methods=["GET"])
+@jwt_required()
+def get_preferences():
+    user_id = get_jwt_identity()
+    pref = Preference.query.filter_by(user_id=user_id).first()
+    if not pref:
+        pref = Preference(user_id=user_id)
+        db.session.add(pref)
+        db.session.commit()
+    
+    activities = [a.strip() for a in pref.preferred_activities.split(",") if a.strip()] if pref.preferred_activities else []
+    return jsonify({
+        "trip_type": pref.trip_type,
+        "max_distance": pref.max_distance,
+        "preferred_activities": activities,
+        "budget_level": pref.budget_level,
+        "travel_pace": pref.travel_pace,
+        "vibe_description": pref.vibe_description or ""
+    }), 200
+
+@app.route("/api/preferences", methods=["POST"])
+@jwt_required()
+def save_preferences():
+    user_id = get_jwt_identity()
+    data = request.get_json()
+    
+    preferred_activities = data.get("preferred_activities", [])
+    budget_level = data.get("budget_level", "moderate")
+    travel_pace = data.get("travel_pace", "moderate")
+    vibe_description = data.get("vibe_description", "").strip()[:200]  # cap at 200 chars
+    
+    if budget_level not in ["budget", "moderate", "luxury"]:
+        budget_level = "moderate"
+    if travel_pace not in ["relaxed", "moderate", "active"]:
+        travel_pace = "moderate"
+        
+    pref = Preference.query.filter_by(user_id=user_id).first()
+    if not pref:
+        pref = Preference(user_id=user_id)
+        db.session.add(pref)
+        
+    pref.preferred_activities = ",".join([str(a).strip() for a in preferred_activities if str(a).strip()])
+    pref.budget_level = budget_level
+    pref.travel_pace = travel_pace
+    pref.vibe_description = vibe_description
+    
+    db.session.commit()
+    return jsonify({"message": "Preferences saved successfully."}), 200
+
 @app.route("/api/validate-schedule", methods=["POST"])
 @jwt_required()
 def validate_schedule():
@@ -1371,13 +1747,18 @@ def delete_itinerary(itinerary_id):
     return jsonify({"message": "Itinerary deleted"}), 200
 
 @app.route("/api/suggest-places", methods=["POST"])
+@jwt_required(optional=True)
 def suggest_places():
+    user_id = get_jwt_identity()
+    user_pref = Preference.query.filter_by(user_id=user_id).first() if user_id else None
+    
     data = request.get_json()
     lat = data.get("lat")
     lon = data.get("lon")
     category = data.get("category", "")
     radius = data.get("radius", 10000)
     weather = data.get("weather", {})
+    mood = data.get("mood", "").strip()  # optional free-text vibe/mood from user
     env_type = "Any"
     
     if not lat or not lon or not category:
@@ -1390,7 +1771,7 @@ def suggest_places():
             return jsonify([]), 200
             
         get_tomtom_travel_times(lat, lon, places)
-        scored = calculate_local_scores(places, weather, category, env_type)
+        scored = calculate_local_scores(places, weather, category, env_type, user_pref)
         
         # Filter and sort (strictly exclude currently closed places, and only keep scored > 0)
         scored = [p for p in scored if p.get("isOpen") is not False and p.get("score", 0) > 0]
@@ -1401,8 +1782,23 @@ def suggest_places():
         # Populate with personalized AI reasons using Gemini (falling back to rules if rate-limited or offline)
         try:
             weather_desc = f"{weather.get('temp')}°C with {weather.get('condition')}" if weather else "pleasant weather"
+            
+            # Fetch directory stores in parallel for the top 3 results using ThreadPoolExecutor
+            def get_dir_for_place(p):
+                if not is_place_complex(p):
+                    return []
+                lat_val = p.get("lat")
+                lon_val = p.get("lon")
+                if lat_val and lon_val:
+                    return fetch_nearby_directory_stores(lat_val, lon_val)
+                return []
+
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                directories = list(executor.map(get_dir_for_place, results))
+
             places_info = []
             for idx, p in enumerate(results):
+                p["directory"] = directories[idx] if idx < len(directories) else []
                 revs = [r.get("text", "") if isinstance(r, dict) else str(r) for r in p.get("reviews", [])[:2]]
                 places_info.append({
                     "id": idx,
@@ -1412,27 +1808,54 @@ def suggest_places():
                     "distance": p.get("distance"),
                     "type": p.get("type") or p.get("envType") or "Indoor",
                     "category": p.get("category"),
-                    "reviews": revs
+                    "reviews": revs,
+                    "directory": p["directory"]
                 })
             
+            # Build enriched preference context
+            saved_vibe = (user_pref.vibe_description or "").strip() if user_pref else ""
+            budget_lvl = (user_pref.budget_level or "moderate").lower() if user_pref else "moderate"
+            activities_str = (user_pref.preferred_activities or "Any") if user_pref else "Any"
+
+            budget_guidance = {
+                "budget": "The user prefers BUDGET-FRIENDLY options. In your explanation, specifically mention affordable aspects: cheap menu items (e.g. meals under ₱150, free entry, promo combos), budget-friendly stores/stalls/restaurants from their directory (like food courts or fast-food chains), or any low-cost experience details you can infer from the category and reviews. Name actual specific spots inside the venue.",
+                "luxury": "The user prefers LUXURY / PREMIUM experiences. In your explanation, highlight upscale aspects: premium dining, fine-service details, high-end boutiques or luxury dining tenants from their directory, or other high-end offerings that justify the higher spend. Name actual specific premium spots inside the venue.",
+                "moderate": "The user is open to moderate pricing. Mention good value for money — worth the price, solid quality without being too cheap or too expensive. Suggest specific average-priced tenants or dining options from their directory."
+            }.get(budget_lvl, "")
+
+            vibe_line = f'User\'s saved vibe/mood: "{saved_vibe}". Tailor each explanation to resonate with this vibe — if the place fits it well, explain why. If it\'s a partial match, acknowledge it naturally.\n' if saved_vibe else ""
+            # Also factor in per-request mood (from search, if still provided)
+            if mood and mood != saved_vibe:
+                vibe_line += f'Additional search vibe: "{mood}".\n'
+
+            has_vibe = bool(saved_vibe or mood)
+            sentence_guideline = "3 to 4 sentences, around 60 to 90 words" if has_vibe else "2 to 3 sentences, around 30 to 50 words"
+
             prompt = f"""
-You are a smart travel assistant. Generate a personalized, friendly, and simple "Why Suggested?" explanation for each of the following 3 local places under the current weather condition of {weather_desc}.
-The user selected category preference is: "{category}" (Note: if "Any", it means we compared cafes, restaurants, parks, malls, etc., to find the absolute best options).
+You are a smart travel assistant. Generate a personalized, friendly "Why Suggested?" explanation for each of the following 3 local places under the current weather condition of {weather_desc}.
+The user selected category: "{category}" (if "Any", we compared all categories to find the absolute best options near the user).
+User Profile — Preferred Activities: {activities_str} | Budget Style: {budget_lvl.title()}.
+{vibe_line}
+BUDGET GUIDANCE: {budget_guidance}
 
 Rankings:
-- Place 0 is your Top 1 Recommendation (the absolute best option).
-- Place 1 is your Top 2 Recommendation (runner-up).
-- Place 2 is your Top 3 Recommendation (third choice).
+- Place 0 = Top 1 Recommendation (absolute best).
+- Place 1 = Top 2 Recommendation (runner-up).
+- Place 2 = Top 3 Recommendation (third choice).
 
 Guidelines:
-1. Make the explanation feel custom and personalized for the specific place, explaining why it's a good choice for the current weather (e.g. indoor air conditioning to escape the heat/rain vs. nice outdoor fresh air).
-2. Explicitly defend its RANK.
-   - For Place 0, defend why it is your Top 1 Choice out of all available options under today's weather/distance. If category is "Any", explain why this type of place is the #1 category to visit today (e.g., an air-conditioned mall is much better than an outdoor park when it's {weather_desc}).
-   - For Place 1 and Place 2, explain why they are strong Top 2 and Top 3 choices/alternatives (e.g., slightly further away, a different vibe, or slightly lower score, but still outstanding).
-3. Incorporate ratings/reviews (e.g. mentioning what recent visitors liked about it, like great food, peaceful vibes, or friendly service from the reviews provided) and its distance (e.g. only X km away) to support your defense.
-4. Use simple, direct, and conversational words. Avoid complex, flowery, or cliché words (do NOT use words like "boasts", "exceptional", "top-tier", "nestled", "transit time", "unwind", "plethora", "haven").
-5. Keep each explanation short and concise (exactly 2 to 3 sentences, around 30 to 50 words maximum).
-6. Output your response as a valid JSON array of strings corresponding to the place IDs 0, 1, and 2. 
+1. Make the explanation feel personal and specific — explain why it suits the current weather (e.g. air-conditioned vs. breezy outdoor).
+2. Defend each rank explicitly.
+   - For Place 0: explain why it beats all other options today given weather and distance.
+   - For Places 1 & 2: explain why they are still strong alternatives.
+3. Use specific details from ratings and reviews (e.g. what visitors loved — food, vibes, service) and distance (e.g. only X km away).
+4. Apply the BUDGET GUIDANCE above: name specific affordable or premium aspects depending on the user's budget.
+   - If the place is a mall/complex (has items in its "directory" list), you MUST look at the "directory" list of tenants/stores provided and name 1-2 specific shops or restaurants from that directory in your explanation.
+   - If the directory is empty (which means it is a standalone venue like a cafe, restaurant, park, or museum), you MUST NOT suggest nearby independent businesses or separate venues. Instead, focus strictly on its own menu items, vibe, reviews, or features from its own reviews/description.
+5. If the user's preferred activities match the place category, mention that match naturally.
+6. Use simple, conversational words. AVOID: "boasts", "exceptional", "top-tier", "nestled", "unwind", "plethora", "haven", "transit time".
+7. Each explanation must be exactly {sentence_guideline}.
+8. Return a valid JSON array of 3 strings (one per place, ordered 0→1→2).
 
 JSON schema:
 ["Explanation for Place 0", "Explanation for Place 1", "Explanation for Place 2"]
@@ -1452,6 +1875,8 @@ Data:
                     lines = lines[:-1]
                 resp_text = "\n".join(lines).strip()
                 
+            # Remove any trailing commas before JSON parsing
+            resp_text = re.sub(r',\s*([\]}])', r'\1', resp_text)
             explanations = json.loads(resp_text)
             if isinstance(explanations, list) and len(explanations) == len(results):
                 for idx, r in enumerate(results):
@@ -1461,14 +1886,16 @@ Data:
                 
         except Exception as e:
             print(f"[Gemini suggest-places] Failed to generate AI reasons, falling back to rule-based: {e}")
+            budget_lvl = (user_pref.budget_level or "moderate").lower() if user_pref else "moderate"
             for idx, r in enumerate(results):
-                r["whySuggested"] = generate_fallback_reason(r, category, weather, idx + 1)
+                r["whySuggested"] = generate_fallback_reason(r, category, weather, idx + 1, budget_lvl)
             
         return jsonify(results), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ai-chat", methods=["POST"])
+@jwt_required(optional=True)
 def ai_chat():
     data = request.get_json()
     user_message = data.get("message")
@@ -1481,10 +1908,25 @@ def ai_chat():
     if not user_message:
         return jsonify({"error": "Message is required"}), 400
         
+    user_id = get_jwt_identity()
+    pref = Preference.query.filter_by(user_id=user_id).first() if user_id else None
+    
+    pref_instruction = ""
+    if pref:
+        pref_instruction = f"""
+User Personalization Profile:
+- Preferred Activities: {pref.preferred_activities or 'Any'}
+- Budget Level: {pref.budget_level or 'Moderate'}
+- Travel Pace: {pref.travel_pace or 'Moderate'}
+Tailor your recommendations, itinerary planning density, suggestions, and chat insights to align with these preferences! If a spot matches their activities or budget, mention it naturally to the user.
+"""
+
     system_instruction = f"""
 You are SunWise AI, a premium, intelligent, highly-capable travel companion and smart concierge.
 The user is currently at location: {location}.
 Current local weather conditions: {json.dumps(weather) if weather else "Unknown"}.
+{pref_instruction}
+
 
 Response Formatting & Readability Rules:
 1. **Be extremely concise and direct**: Avoid long conversational fillers, intros, or wordy pleasantries. Keep intros and outros under 1-2 short sentences.

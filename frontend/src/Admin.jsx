@@ -91,7 +91,7 @@ export default function Admin() {
   }
 
   return (
-    <div style={{ padding: "40px", maxWidth: "1600px", margin: "0 auto" }}>
+    <div style={{ padding: "88px 40px 40px", maxWidth: "1600px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
         <h1 className="font-heading" style={{ color: "var(--accent-blue)" }}>🛡️ IAS Command Center</h1>
         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>

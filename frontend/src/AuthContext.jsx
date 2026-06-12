@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [username, setUsername] = useState(null)
   const [role, setRole]         = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [showPreferences, setShowPreferences] = useState(false)
 
   useEffect(() => {
     // Check if the user has a valid HttpOnly cookie session
@@ -49,7 +50,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, username, role, login, logout }}>
+    <AuthContext.Provider value={{ token, username, role, login, logout, showPreferences, setShowPreferences }}>
       {children}
     </AuthContext.Provider>
   )

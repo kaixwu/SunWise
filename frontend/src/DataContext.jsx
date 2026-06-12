@@ -52,6 +52,8 @@ export const DataProvider = ({ children }) => {
     return localStorage.getItem("userCity") || null;
   });
 
+  const [suggestRefreshTrigger, setSuggestRefreshTrigger] = useState(0);
+
   // Automatically sync coordinates and userCity to localStorage
   useEffect(() => {
     if (currentCoords) {
@@ -222,6 +224,8 @@ export const DataProvider = ({ children }) => {
     refreshItineraries: fetchItineraries,
     userCity, setUserCity,    // ← new
     resetToGPS,
+    suggestRefreshTrigger,
+    setSuggestRefreshTrigger,
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

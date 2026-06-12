@@ -176,7 +176,7 @@ export default function Planner() {
   const upcomingItins = allItineraries.filter((it) => it.date_str > getLocalDateString());
 
   return (
-    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "0 24px 40px" }}>
+    <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "88px 24px 40px" }}>
       <div className="fluid-background-container" style={{ position: "fixed" }}>
         <FluidGradient 
           color1="#3b0764" 
