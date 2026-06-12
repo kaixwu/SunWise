@@ -416,8 +416,8 @@ export default function Planner() {
                                 src={photoUrl} 
                                 alt={item.name} 
                                 style={{ 
-                                  width: "60px", 
-                                  height: "60px", 
+                                  width: "75px", 
+                                  height: "75px", 
                                   borderRadius: "10px", 
                                   objectFit: "cover",
                                   border: "1px solid rgba(255,255,255,0.1)"
@@ -491,7 +491,7 @@ export default function Planner() {
           {upcomingItins.length === 0 ? (
             <div className="glass-card" style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>No upcoming plans yet.</div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "24px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "24px", alignItems: "flex-start" }}>
               {groupedUpcoming.map((group) => (
                 <div key={group.date_str} className="glass-card" style={{ flex: "1 1 350px", padding: "24px", minWidth: "300px" }}>
                   <div style={{ fontWeight: "700", fontSize: "1.2rem", marginBottom: "20px", color: "var(--accent-blue)" }}>
@@ -526,8 +526,8 @@ export default function Planner() {
                               src={photoUrl} 
                               alt={item.name} 
                               style={{ 
-                                width: "60px", 
-                                height: "60px", 
+                                width: "75px", 
+                                height: "75px", 
                                 borderRadius: "10px", 
                                 objectFit: "cover",
                                 border: "1px solid rgba(255,255,255,0.1)"
