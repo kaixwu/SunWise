@@ -6,7 +6,54 @@ import { CalendarCheck, Zap, Trash2, ListTodo, Sparkles, Send, MapPin, Clock, Ca
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import FluidGradient from "../components/FluidGradient";
+import PlaceModal from "../components/PlaceModal";
 
+const getGroupedPlans = (itineraries) => {
+  const groups = {};
+  
+  itineraries.forEach((it) => {
+    const d = it.date_str;
+    if (!groups[d]) {
+      groups[d] = {
+        date_str: d,
+        items: []
+      };
+    }
+    
+    if (it.schedule) {
+      // Itinerary has a schedule
+      it.schedule.forEach((schItem) => {
+        // Try to find matching full place object
+        const fullPlace = it.places?.find(p => p.name === schItem.place) || { name: schItem.place, category: "Destination" };
+        groups[d].items.push({
+          id: `${it.id}_sch_${schItem.place}`,
+          itineraryId: it.id,
+          place: fullPlace,
+          name: schItem.place,
+          time_display: `${schItem.arrival_time} - ${schItem.departure_time}`,
+          activity_suggestion: schItem.activity_suggestion,
+          isSchedule: true
+        });
+      });
+    } else {
+      // Manually added places
+      it.places?.forEach((p) => {
+        groups[d].items.push({
+          id: `${it.id}_place_${p.name}`,
+          itineraryId: it.id,
+          place: p,
+          name: p.name,
+          time_display: it.time_str ? `at ${it.time_str}` : "",
+          isSchedule: false
+        });
+      });
+    }
+  });
+
+  // Sort dates
+  const sortedDates = Object.keys(groups).sort();
+  return sortedDates.map(d => groups[d]);
+};
 
 export default function Planner() {
   const { token } = useAuth();
@@ -174,6 +221,8 @@ export default function Planner() {
 
   const todayItins = allItineraries.filter((it) => it.date_str === getLocalDateString());
   const upcomingItins = allItineraries.filter((it) => it.date_str > getLocalDateString());
+  const groupedToday = getGroupedPlans(todayItins);
+  const groupedUpcoming = getGroupedPlans(upcomingItins);
 
   return (
     <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "88px 24px 40px" }}>
@@ -327,41 +376,100 @@ export default function Planner() {
               No plan scheduled for today. Use Destinations or ask AI below!
             </div>
           ) : (
-            <div ref={exportRef} className="glass-card" style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "32px", marginTop: "32px" }}>
+            <div ref={exportRef} className="glass-card" style={{ display: "flex", flexDirection: "column", gap: "24px", padding: "32px", marginTop: "32px" }}>
               <h2 style={{ color: "var(--accent-blue)", margin: "0 0 8px", fontFamily: "var(--font-heading)" }}>
                 SunWise Itinerary - {getLocalDateString()}
               </h2>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
-                {todayItins.map((it) => (
-                <div key={it.id} className="glass-card" style={{ flex: "1 1 300px", padding: "16px", minWidth: "280px" }}>
-                  <div style={{ fontWeight: "700", fontSize: "1.1rem", marginBottom: "8px" }}>
-                    {it.date_str} {it.time_str && `at ${it.time_str}`}
-                  </div>
-                  {it.schedule ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      {it.schedule.map((item, idx) => (
-                        <div key={idx} style={{ fontSize: "0.9rem", color: "#e2e8f0" }}>
-                          <strong>{item.arrival_time}–{item.departure_time}:</strong> {item.place}
-                          {item.activity_suggestion && <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>{item.activity_suggestion}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <ul style={{ margin: 0, paddingLeft: "20px", color: "#e2e8f0" }}>
-                      {it.places.map((p, idx) => (
-                        <li key={idx} style={{ marginBottom: "4px" }}>{p.name} ({p.category})</li>
-                      ))}
-                    </ul>
-                  )}
-                  <button
-                    onClick={() => deleteItinerary(it.id)}
-                    style={{ marginTop: "12px", padding: "4px 8px", background: "transparent", border: "1px solid var(--danger)", color: "var(--danger)", borderRadius: "4px", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
-                  >
-                    <Trash2 size={14} /> Remove
-                  </button>
+              {groupedToday.length === 0 ? (
+                <div style={{ color: "var(--text-muted)", textAlign: "center", padding: "20px" }}>
+                  No plans saved for today yet.
                 </div>
-              ))}
-              </div>
+              ) : (
+                groupedToday.map((group) => (
+                  <div key={group.date_str} style={{ width: "100%" }}>
+                    <div className="timeline-container">
+                      {group.items.map((item) => {
+                        const p = item.place;
+                        const photoUrl = p.photoUrl || p.photoUrlSecondary || (p.photoUrls && p.photoUrls[0]) || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=60";
+                        return (
+                          <div 
+                            key={item.id} 
+                            className="timeline-item"
+                            style={{ 
+                              display: "flex", 
+                              alignItems: "center", 
+                              justifyContent: "space-between", 
+                              gap: "16px",
+                              cursor: "pointer",
+                              padding: "12px 16px",
+                              background: "rgba(255,255,255,0.03)",
+                              border: "1px solid rgba(255,255,255,0.06)",
+                              borderRadius: "14px",
+                              transition: "all 0.3s ease"
+                            }}
+                            onClick={() => openDetail(p)}
+                          >
+                            <div className="timeline-dot" style={{ top: "50%", transform: "translateY(-50%)" }} />
+                            
+                            <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1 }}>
+                              <img 
+                                src={photoUrl} 
+                                alt={item.name} 
+                                style={{ 
+                                  width: "60px", 
+                                  height: "60px", 
+                                  borderRadius: "10px", 
+                                  objectFit: "cover",
+                                  border: "1px solid rgba(255,255,255,0.1)"
+                                }} 
+                                onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=60"; }}
+                              />
+                              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                <div style={{ fontWeight: "700", fontSize: "1.05rem", color: "#f8fafc" }}>
+                                  {item.name}
+                                </div>
+                                <div style={{ fontSize: "0.82rem", color: "var(--accent-teal)", fontWeight: "600" }}>
+                                  {p.category} {item.time_display && `· ${item.time_display}`}
+                                </div>
+                                {item.activity_suggestion && (
+                                  <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px", fontStyle: "italic" }}>
+                                    {item.activity_suggestion}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteItinerary(item.itineraryId);
+                              }}
+                              style={{
+                                background: "rgba(239, 68, 68, 0.1)",
+                                border: "1px solid rgba(239, 68, 68, 0.2)",
+                                color: "var(--danger)",
+                                borderRadius: "50%",
+                                width: "36px",
+                                height: "36px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                transition: "all 0.2s ease"
+                              }}
+                              title="Remove from Planner"
+                              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
 
@@ -383,43 +491,92 @@ export default function Planner() {
           {upcomingItins.length === 0 ? (
             <div className="glass-card" style={{ padding: "40px", textAlign: "center", color: "var(--text-muted)" }}>No upcoming plans yet.</div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
-              {upcomingItins.map((it) => (
-                <div key={it.id} className="glass-card" style={{ flex: "1 1 300px", padding: "16px", minWidth: "280px" }}>
-                  <div style={{ fontWeight: "700", fontSize: "1.2rem", marginBottom: "16px", color: "var(--accent-blue)" }}>
-                    {it.date_str} {it.time_str && `| ${it.time_str}`}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "24px" }}>
+              {groupedUpcoming.map((group) => (
+                <div key={group.date_str} className="glass-card" style={{ flex: "1 1 350px", padding: "24px", minWidth: "300px" }}>
+                  <div style={{ fontWeight: "700", fontSize: "1.2rem", marginBottom: "20px", color: "var(--accent-blue)" }}>
+                    {group.date_str}
                   </div>
-                  {it.schedule ? (
-                    <div className="timeline-container">
-                      {it.schedule.map((item, idx) => (
-                        <div key={idx} className="timeline-item">
-                          <div className="timeline-dot" />
-                          <div style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                            <div style={{ fontWeight: "700", width: "80px", flexShrink: 0, color: "var(--accent-teal)", fontSize: "0.9rem" }}>
-                              {item.arrival_time}
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: "700", fontSize: "1rem" }}>{item.place}</div>
-                              {item.activity_suggestion && <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>{item.activity_suggestion}</div>}
+                  <div className="timeline-container">
+                    {group.items.map((item) => {
+                      const p = item.place;
+                      const photoUrl = p.photoUrl || p.photoUrlSecondary || (p.photoUrls && p.photoUrls[0]) || "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=60";
+                      return (
+                        <div 
+                          key={item.id} 
+                          className="timeline-item"
+                          style={{ 
+                            display: "flex", 
+                            alignItems: "center", 
+                            justifyContent: "space-between", 
+                            gap: "16px",
+                            cursor: "pointer",
+                            padding: "12px 16px",
+                            background: "rgba(255,255,255,0.03)",
+                            border: "1px solid rgba(255,255,255,0.06)",
+                            borderRadius: "14px",
+                            transition: "all 0.3s ease"
+                          }}
+                          onClick={() => openDetail(p)}
+                        >
+                          <div className="timeline-dot" style={{ top: "50%", transform: "translateY(-50%)" }} />
+                          
+                          <div style={{ display: "flex", alignItems: "center", gap: "16px", flex: 1 }}>
+                            <img 
+                              src={photoUrl} 
+                              alt={item.name} 
+                              style={{ 
+                                width: "60px", 
+                                height: "60px", 
+                                borderRadius: "10px", 
+                                objectFit: "cover",
+                                border: "1px solid rgba(255,255,255,0.1)"
+                              }} 
+                              onError={(e) => { e.target.src = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=60"; }}
+                            />
+                            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                              <div style={{ fontWeight: "700", fontSize: "1.05rem", color: "#f8fafc" }}>
+                                {item.name}
+                              </div>
+                              <div style={{ fontSize: "0.82rem", color: "var(--accent-teal)", fontWeight: "600" }}>
+                                {p.category} {item.time_display && `· ${item.time_display}`}
+                              </div>
+                              {item.activity_suggestion && (
+                                <div style={{ fontSize: "0.8rem", color: "#94a3b8", marginTop: "2px", fontStyle: "italic" }}>
+                                  {item.activity_suggestion}
+                                </div>
+                              )}
                             </div>
                           </div>
+                          
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteItinerary(item.itineraryId);
+                            }}
+                            style={{
+                              background: "rgba(239, 68, 68, 0.1)",
+                              border: "1px solid rgba(239, 68, 68, 0.2)",
+                              color: "var(--danger)",
+                              borderRadius: "50%",
+                              width: "36px",
+                              height: "36px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                              transition: "all 0.2s ease"
+                            }}
+                            title="Remove from Planner"
+                            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.25)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="timeline-container">
-                      {it.places.map((p, idx) => (
-                        <div key={idx} className="timeline-item">
-                          <div className="timeline-dot" />
-                          <div style={{ fontWeight: "700", fontSize: "1rem" }}>{p.name}</div>
-                          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{p.category}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <button onClick={() => deleteItinerary(it.id)} style={{ marginTop: "12px", padding: "4px 8px", background: "transparent", border: "1px solid var(--danger)", color: "var(--danger)", borderRadius: "4px", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
-                    <Trash2 size={14} /> Remove
-                  </button>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
