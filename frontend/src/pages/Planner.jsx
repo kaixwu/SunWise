@@ -416,7 +416,7 @@ export default function Planner() {
                                 src={photoUrl} 
                                 alt={item.name} 
                                 style={{ 
-                                  width: "75px", 
+                                  width: "110px", 
                                   height: "75px", 
                                   borderRadius: "10px", 
                                   objectFit: "cover",
@@ -526,7 +526,7 @@ export default function Planner() {
                               src={photoUrl} 
                               alt={item.name} 
                               style={{ 
-                                width: "75px", 
+                                width: "110px", 
                                 height: "75px", 
                                 borderRadius: "10px", 
                                 objectFit: "cover",
