@@ -3,12 +3,12 @@ import axios from "axios";
 import { useData } from "../DataContext";
 import { useAuth } from "../AuthContext";
 import {
-  MapContainer, TileLayer, Marker, Popup, useMap, Polyline
+  MapContainer, TileLayer, Marker, Popup, useMap, Polyline, Tooltip
 } from 'react-leaflet';
 import {
   Search, MapPin, Navigation, AlertCircle,
   Wind, Droplets, Sunrise, ChevronDown, Zap, Map as MapIcon,
-  Sparkles, Compass
+  Sparkles, Compass, X
 } from "lucide-react";
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -28,11 +28,11 @@ L.Icon.Default.mergeOptions({
 });
 
 const userLocationIcon = L.divIcon({
-  className: "custom-user-marker",
+  className: "custom-user-marker-teal",
   html: `
     <div class="user-marker-container">
-      <div class="user-marker-pulse"></div>
-      <div class="user-marker-dot"></div>
+      <div class="user-marker-teal-pulse"></div>
+      <div class="user-marker-teal-dot"></div>
     </div>
   `,
   iconSize: [30, 30],
@@ -47,15 +47,40 @@ const getLocalDateString = () => {
   return `${y}-${m}-${d}`;
 };
 
+// Listening to zoom level changes and propagating to parent component
+function MapZoomListener({ onChange }) {
+  const map = useMap();
+  useEffect(() => {
+    const handleZoom = () => {
+      onChange(map.getZoom());
+    };
+    map.on('zoomend', handleZoom);
+    // Initial call
+    handleZoom();
+    return () => {
+      map.off('zoomend', handleZoom);
+    };
+  }, [map, onChange]);
+  return null;
+}
+
 function MapFlyTo({ center }) {
   const map = useMap();
-  map.flyTo(center, 13, { duration: 1 });
+  const lat = center ? center[0] : null;
+  const lon = center ? center[1] : null;
+
+  useEffect(() => {
+    if (lat && lon) {
+      map.flyTo([lat, lon], 15, { duration: 1 });
+    }
+  }, [lat, lon, map]);
   return null;
 }
 
 export default function Home() {
   const { token } = useAuth();
   const [selectedPlace, setSelectedPlace] = useState(null);
+  const [zoomLevel, setZoomLevel] = useState(15);
   const {
     city, weather, currentCoords, loading, locationError, setLocationError,
     fetcheverything, places, todayPlan, radius,
@@ -238,6 +263,8 @@ export default function Home() {
 
     fetchHeroImages();
   }, [city, userCity, currentCoords]);
+
+
 
   // Auto slide effect
   useEffect(() => {
@@ -567,19 +594,21 @@ export default function Home() {
                           Top {i + 1}
                         </div>
                       </div>
-                      <div style={{ padding: "12px 16px", flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "4px" }}>
+                      <div style={{ padding: "12px 16px", flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
                           <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: "700", color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</h3>
                           <div style={{ fontSize: "0.7rem", color: "var(--accent-teal)", fontWeight: "700", textTransform: "uppercase", flexShrink: 0, marginLeft: "12px" }}>{p.category}</div>
                         </div>
-                        <p style={{ margin: "0 0 6px", fontSize: "0.8rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.address}</p>
-                        {p.rating && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", marginBottom: "8px" }}>
-                            <span style={{ color: "var(--accent-gold)" }}>★</span> {p.rating} ({p.ratingCount} reviews)
-                          </div>
-                        )}
                         
-                        <div style={{ marginTop: "auto", fontSize: "0.8rem", color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ 
+                          fontSize: "0.82rem", 
+                          color: "#cbd5e1", 
+                          lineHeight: "1.45",
+                          display: "-webkit-box",
+                          WebkitLineClamp: "3",
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden"
+                        }}>
                           <strong style={{ color: "var(--accent-teal)", marginRight: "6px" }}>Why Suggested?</strong>
                           {p.whySuggested || (p.matchReasons && p.matchReasons.length > 0 ? p.matchReasons[0] : `A highly-rated ${p.category || 'destination'} nearby.`)}
                         </div>
@@ -693,9 +722,10 @@ export default function Home() {
           <div className="home-map-container map-breathe">
             <MapContainer
               center={[currentCoords.lat, currentCoords.lon]}
-              zoom={13}
+              zoom={15}
               style={{ height: '100%', width: '100%' }}
             >
+              <MapZoomListener onChange={setZoomLevel} />
               <MapFlyTo center={[currentCoords.lat, currentCoords.lon]} />
               <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -707,7 +737,17 @@ export default function Home() {
                 opacity={0.7}
               />
               <Marker position={[currentCoords.lat, currentCoords.lon]} icon={userLocationIcon}>
-                <Popup><strong>You are here</strong></Popup>
+                <Tooltip 
+                  permanent 
+                  direction="top" 
+                  offset={[0, -10]}
+                  className="custom-map-tooltip"
+                  style={{
+                    fontSize: `${Math.max(8, Math.min(15, zoomLevel * 0.8))}px`
+                  }}
+                >
+                  You are here
+                </Tooltip>
               </Marker>
               {(routePolyline.length > 0 ? [routeDest] : places.slice(0, 10)).map((p, i) =>
                 p && (
@@ -785,8 +825,8 @@ export default function Home() {
         <PlaceModal 
           place={selectedPlace} 
           onClose={() => setSelectedPlace(null)} 
-          onGoToday={() => { openModal(selectedPlace, 'today'); }}
-          onSchedule={() => { openModal(selectedPlace, 'schedule'); }}
+          onGoToday={() => { setSelectedPlace(null); openModal(selectedPlace, 'today'); }}
+          onSchedule={() => { setSelectedPlace(null); openModal(selectedPlace, 'schedule'); }}
         />
       )}
 

@@ -265,8 +265,8 @@ export default function Destinations() {
         <PlaceModal
           place={detailPlace}
           onClose={closeDetail}
-          onGoToday={() => openModal(detailPlace, 'today')}
-          onSchedule={() => openModal(detailPlace, 'schedule')}
+          onGoToday={() => { closeDetail(); openModal(detailPlace, 'today'); }}
+          onSchedule={() => { closeDetail(); openModal(detailPlace, 'schedule'); }}
         />
       )}
 

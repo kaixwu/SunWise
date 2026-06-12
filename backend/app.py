@@ -637,6 +637,7 @@ def fetch_google_places_text_search(lat, lon, radius, keyword):
                 "envType": dest_type,
                 "rating": place.get("rating"),
                 "ratingCount": place.get("userRatingCount", 0),
+                "userRatingCount": place.get("userRatingCount", 0),
                 "isOpen": is_open,
                 "hoursDisplay": hours_display,
                 "photoUrl": photo_url,
@@ -766,6 +767,7 @@ def fetch_google_places(lat, lon, radius, category="Any", keyword=None):
                 "hoursDisplay": hours_display,
                 "address": place.get("formattedAddress", ""),
                 "rating": rating,
+                "ratingCount": user_rating_count,
                 "userRatingCount": user_rating_count,
                 "photoUrl": photo_url,
                 "photoUrlSecondary": photo_url_secondary,
@@ -876,39 +878,86 @@ def calculate_local_scores(places, weather, preferred_category, env_type):
         p["matchReasons"] = reasons
     return places
 
-def generate_fallback_reason(place, category):
-    reasons = []
-    
-    # Rating-based
+def generate_fallback_reason(place, category, weather=None, rank=None):
+    name = place.get("name")
     rating = place.get("rating")
-    if rating and rating >= 4.5:
-        reasons.append("boasts an exceptional rating with glowing visitor feedback")
-    elif rating and rating >= 4.0:
-        reasons.append("is highly recommended by locals for its top-tier quality")
-        
-    # Distance-based
+    rating_count = place.get("ratingCount") or place.get("userRatingCount") or 0
     dist = place.get("distance", 0)
-    if dist <= 2.0:
-        reasons.append("is situated just a short walk or drive away from your coordinates")
+    is_outdoor = place.get("type") == "Outdoor" or place.get("envType") == "Outdoor" or place.get("category") in ["Park", "Nature", "Attraction"]
+    
+    # 1. Weather & Environment Defense (Simple, direct words)
+    weather = weather or {}
+    temp = weather.get("temp")
+    cond = (weather.get("condition") or "").lower()
+    
+    weather_desc = ""
+    if temp is not None and cond:
+        is_raining = "rain" in cond or "drizzle" in cond or "shower" in cond
+        is_hot = temp > 30
+        
+        if is_raining:
+            if not is_outdoor:
+                weather_desc = f"It is currently raining ({cond}) outside, so this indoor spot is a great choice to stay dry."
+            else:
+                weather_desc = f"Although there is rain ({cond}) today, this outdoor spot is open if you want a fresh atmosphere (just remember an umbrella)."
+        elif is_hot:
+            if not is_outdoor:
+                weather_desc = f"Since it is hot today ({round(temp)}°C), this air-conditioned indoor spot is perfect for escaping the heat."
+            else:
+                weather_desc = f"Even though it is hot today ({round(temp)}°C), this outdoor spot offers a nice place to visit if you enjoy warm weather."
+        else:
+            if is_outdoor:
+                weather_desc = f"The weather is pleasant today ({cond}), making it a great time to visit this outdoor spot and enjoy the fresh air."
+            else:
+                weather_desc = f"The weather is {cond} today, and this indoor spot is a comfortable place to spend your time."
+    else:
+        # Fallback if no weather data
+        if is_outdoor:
+            weather_desc = f"This outdoor spot is perfect for enjoying the fresh air and local scenery."
+        else:
+            weather_desc = f"This indoor spot is a comfortable, temperature-controlled space to visit."
+
+    # 2. Location/Distance Defense
+    dist_desc = ""
+    if dist <= 1.5:
+        dist_desc = f"It is extremely close to you—only {dist} km away—so you can get there in just a few minutes."
     elif dist <= 5.0:
-        reasons.append("is located incredibly close by, minimizing your transit time")
-        
-    # Indoors/Outdoors setting
-    if place.get("type") == "Outdoor":
-        reasons.append("offers a beautiful outdoor breeze perfect for a refreshing visit")
+        dist_desc = f"It is located only {dist} km from your current coordinates, making it a very quick and easy trip."
     else:
-        reasons.append("provides a fully air-conditioned, comfortable indoor space to unwind")
+        dist_desc = f"It is situated {dist} km away, which is a convenient distance for a short drive or ride."
+
+    # 3. Reviews/Rating Defense
+    rating_desc = ""
+    if rating:
+        reviews_list = place.get("reviews", [])
+        review_snippet = ""
+        if reviews_list:
+            first_rev = reviews_list[0]
+            rev_text = first_rev.get("text", "") if isinstance(first_rev, dict) else str(first_rev)
+            if rev_text:
+                # Clean and shorten to first sentence or first 70 chars
+                sentences = rev_text.split('.')
+                first_sentence = sentences[0].strip()
+                if len(first_sentence) > 75:
+                    first_sentence = first_sentence[:75] + "..."
+                review_snippet = f" Visitors love it, with one recent review saying: \"{first_sentence}\"."
         
-    if not reasons:
-        return f"A highly-rated local {category.lower() if category and category != 'Any' else 'spot'} that matches your search preferences perfectly."
-        
-    if len(reasons) >= 2:
-        sentence = f"{place['name']} {reasons[0]} and {reasons[1]}."
+        rating_desc = f"It has a solid rating of {rating}/5 stars based on {rating_count} reviews.{review_snippet}"
     else:
-        sentence = f"{place['name']} {reasons[0]}."
-        
-    # Capitalize only the first letter
-    return sentence[0].upper() + sentence[1:] if len(sentence) > 1 else sentence
+        rating_desc = f"It is a popular and highly recommended local choice for this category."
+
+    # 4. Rank Defense Prefix
+    rank_prefix = ""
+    if rank == 1:
+        rank_prefix = f"Suggested as your Top 1 choice overall because it is highly matched for you today. " if category == "Any" else f"Ranked as your Top 1 choice for {category.lower()} because of its great suitability. "
+    elif rank == 2:
+        rank_prefix = "Recommended as your Top 2 alternative, offering another excellent option nearby. "
+    elif rank == 3:
+        rank_prefix = "Ranked as your Top 3 option, this is another highly rated alternative to consider. "
+
+    # Combine into a cohesive but very simple, defensive paragraph
+    full_reason = f"{rank_prefix}{weather_desc} {dist_desc} {rating_desc}"
+    return full_reason
 
 # ── PLACES ENDPOINT (unchanged) ─────────────────────────────────────────────
 @app.route("/api/places", methods=["POST"])
@@ -1349,9 +1398,71 @@ def suggest_places():
         
         results = scored[:3]
         
-        # Populate our beautiful, responsive rule-based reasons (highly accurate, zero token cost!)
-        for r in results:
-            r["whySuggested"] = generate_fallback_reason(r, category)
+        # Populate with personalized AI reasons using Gemini (falling back to rules if rate-limited or offline)
+        try:
+            weather_desc = f"{weather.get('temp')}°C with {weather.get('condition')}" if weather else "pleasant weather"
+            places_info = []
+            for idx, p in enumerate(results):
+                revs = [r.get("text", "") if isinstance(r, dict) else str(r) for r in p.get("reviews", [])[:2]]
+                places_info.append({
+                    "id": idx,
+                    "name": p.get("name"),
+                    "rating": p.get("rating"),
+                    "ratingCount": p.get("ratingCount") or p.get("userRatingCount") or 0,
+                    "distance": p.get("distance"),
+                    "type": p.get("type") or p.get("envType") or "Indoor",
+                    "category": p.get("category"),
+                    "reviews": revs
+                })
+            
+            prompt = f"""
+You are a smart travel assistant. Generate a personalized, friendly, and simple "Why Suggested?" explanation for each of the following 3 local places under the current weather condition of {weather_desc}.
+The user selected category preference is: "{category}" (Note: if "Any", it means we compared cafes, restaurants, parks, malls, etc., to find the absolute best options).
+
+Rankings:
+- Place 0 is your Top 1 Recommendation (the absolute best option).
+- Place 1 is your Top 2 Recommendation (runner-up).
+- Place 2 is your Top 3 Recommendation (third choice).
+
+Guidelines:
+1. Make the explanation feel custom and personalized for the specific place, explaining why it's a good choice for the current weather (e.g. indoor air conditioning to escape the heat/rain vs. nice outdoor fresh air).
+2. Explicitly defend its RANK.
+   - For Place 0, defend why it is your Top 1 Choice out of all available options under today's weather/distance. If category is "Any", explain why this type of place is the #1 category to visit today (e.g., an air-conditioned mall is much better than an outdoor park when it's {weather_desc}).
+   - For Place 1 and Place 2, explain why they are strong Top 2 and Top 3 choices/alternatives (e.g., slightly further away, a different vibe, or slightly lower score, but still outstanding).
+3. Incorporate ratings/reviews (e.g. mentioning what recent visitors liked about it, like great food, peaceful vibes, or friendly service from the reviews provided) and its distance (e.g. only X km away) to support your defense.
+4. Use simple, direct, and conversational words. Avoid complex, flowery, or cliché words (do NOT use words like "boasts", "exceptional", "top-tier", "nestled", "transit time", "unwind", "plethora", "haven").
+5. Keep each explanation short and concise (exactly 2 to 3 sentences, around 30 to 50 words maximum).
+6. Output your response as a valid JSON array of strings corresponding to the place IDs 0, 1, and 2. 
+
+JSON schema:
+["Explanation for Place 0", "Explanation for Place 1", "Explanation for Place 2"]
+
+Data:
+{json.dumps(places_info)}
+"""
+            gemini_resp = generate_gemini_content(prompt)
+            resp_text = gemini_resp.text.strip()
+            
+            # Clean up markdown block if model wraps it in ```json
+            if resp_text.startswith("```"):
+                lines = resp_text.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                resp_text = "\n".join(lines).strip()
+                
+            explanations = json.loads(resp_text)
+            if isinstance(explanations, list) and len(explanations) == len(results):
+                for idx, r in enumerate(results):
+                    r["whySuggested"] = explanations[idx]
+            else:
+                raise ValueError("Invalid length or format")
+                
+        except Exception as e:
+            print(f"[Gemini suggest-places] Failed to generate AI reasons, falling back to rule-based: {e}")
+            for idx, r in enumerate(results):
+                r["whySuggested"] = generate_fallback_reason(r, category, weather, idx + 1)
             
         return jsonify(results), 200
     except Exception as e:

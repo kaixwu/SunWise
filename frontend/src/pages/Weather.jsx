@@ -189,7 +189,7 @@ export default function Weather() {
         <CalendarDays size={20} color="var(--text-muted)" />
         <h3 className="font-heading" style={{ margin: 0, color: "var(--text-muted)", fontSize: "1.1rem" }}>5-Day Forecast</h3>
       </div>
-      <div style={{ display: "flex", gap: "16px", overflowX: "auto", paddingBottom: "16px", marginBottom: selectedDate ? "16px" : "32px" }}>
+      <div style={{ display: "flex", gap: "16px", overflowX: "auto", paddingTop: "12px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "16px", marginBottom: selectedDate ? "16px" : "32px" }}>
         {displayForecast.map((f, i) => {
           const dateKey = f.dt_txt.split(" ")[0];
           const isSelected = selectedDate === dateKey;
@@ -202,6 +202,7 @@ export default function Weather() {
             </div>
           );
         })}
+        <div style={{ flexShrink: 0, width: "8px" }} />
       </div>
       
       {selectedDate && selectedDayForecast.length > 0 && (
@@ -210,7 +211,7 @@ export default function Weather() {
             <Clock size={18} color="var(--accent-teal)" />
             <h4 style={{ margin: 0, color: "var(--accent-teal)", fontSize: "1rem" }}>3-Hour Interval Forecast for {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</h4>
           </div>
-          <div style={{ display: "flex", gap: "16px", overflowX: "auto", paddingBottom: "8px" }}>
+          <div style={{ display: "flex", gap: "16px", overflowX: "auto", paddingTop: "8px", paddingLeft: "4px", paddingRight: "4px", paddingBottom: "8px" }}>
             {selectedDayForecast.map((f, i) => (
               <div key={i} style={{ minWidth: "80px", textAlign: "center", padding: "12px", background: "rgba(255,255,255,0.03)", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.05)" }}>
                 <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "8px" }}>{new Date(f.dt_txt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
@@ -218,6 +219,7 @@ export default function Weather() {
                 <div style={{ fontWeight: "600", fontSize: "1.1rem" }}>{Math.round(f.main.temp)}°C</div>
               </div>
             ))}
+            <div style={{ flexShrink: 0, width: "8px" }} />
           </div>
         </div>
       )}

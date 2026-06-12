@@ -108,10 +108,12 @@ export default function HeroCarousel({ items, currentIndex }) {
         duration: 1.5,
         ease: ease,
         onComplete: () => {
-            const imgElements = imagesContainerRef.current.querySelectorAll(".img");
-            if (imgElements.length > 1) {
-                for (let i = 0; i < imgElements.length - 1; i++) {
-                    imgElements[i].remove();
+            if (imagesContainerRef.current) {
+                const imgElements = imagesContainerRef.current.querySelectorAll(".img");
+                if (imgElements.length > 1) {
+                    for (let i = 0; i < imgElements.length - 1; i++) {
+                        imgElements[i].remove();
+                    }
                 }
             }
             isAnimating.current = false;
@@ -139,7 +141,9 @@ export default function HeroCarousel({ items, currentIndex }) {
                     ease: "power3.out",
                     overwrite: true,
                     onComplete: () => {
-                        container.style.opacity = "0";
+                        if (container) {
+                            container.style.opacity = "0";
+                        }
                     }
                 });
             }

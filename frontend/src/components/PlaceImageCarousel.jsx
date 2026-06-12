@@ -90,10 +90,12 @@ export default function PlaceImageCarousel({ photos, interval = 3000 }) {
       duration: 1.5,
       ease: ease,
       onComplete: () => {
-        const imgElements = imagesContainerRef.current.querySelectorAll(".img");
-        if (imgElements.length > 1) {
-          for (let i = 0; i < imgElements.length - 1; i++) {
-            imgElements[i].remove();
+        if (imagesContainerRef.current) {
+          const imgElements = imagesContainerRef.current.querySelectorAll(".img");
+          if (imgElements.length > 1) {
+            for (let i = 0; i < imgElements.length - 1; i++) {
+              imgElements[i].remove();
+            }
           }
         }
         isAnimating.current = false;
